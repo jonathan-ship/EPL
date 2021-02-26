@@ -11,6 +11,16 @@ if not os.path.exists(save_path):
    os.makedirs(save_path)
 
 
+class Transporter(object):
+    def __init__(self, name, capa, v_loaded, v_unloaded):
+        self.name = name
+        self.capa = capa
+        self.v_loaded = v_loaded
+        self.v_unloaded = v_unloaded
+        self.distance = 0.0
+        self.moving_time = 0.0
+
+
 class Resource(object):
     def __init__(self, env, model, monitor, tp_info=None, wf_info=None, delay_time=None, network=None):
         self.env = env
@@ -25,12 +35,12 @@ class Resource(object):
         # resource 위치 파악
         self.tp_location = {}
         self.wf_location = {}
-        transporter = namedtuple("Transporter", "name, capa, v_loaded, v_unloaded")
+        # transporter = namedtuple("Transporter", "name, capa, v_loaded, v_unloaded, distance, moving_time")
         workforce = namedtuple("Workforce", "name, skill")
         if tp_info is not None:
             for name in tp_info.keys():
                 self.tp_location[name] = []
-                self.tp_store.put(transporter(name, tp_info[name]["capa"], tp_info[name]["v_loaded"], tp_info[name]["v_unloaded"]))
+                self.tp_store.put(Transporter(name, tp_info[name]["capa"], tp_info[name]["v_loaded"], tp_info[name]["v_unloaded"]))
             # No resource is in resource store -> machine hv to wait
             self.tp_waiting = OrderedDict()
         if wf_info is not None:
@@ -73,7 +83,10 @@ class Resource(object):
                 location = tp_location_list[location_idx]
                 tp = yield self.model[location].tp_store.get()
                 self.monitor.record(self.env.now, None, None, part_id=None, event="tp_going_to_requesting_process", resource=tp.name)
-                yield self.env.timeout(distance[location_idx]/tp.v_unloaded)  # 현재 위치까지 오는 시간
+                tp.distance += distance[location_idx]
+                time_to_get = distance[location_idx] / tp.v_unloaded
+                yield self.env.timeout(time_to_get)  # 현재 위치까지 오는 시간
+                tp.moving_time += time_to_get
                 return tp, waiting
 
     # def delaying(self):
@@ -236,7 +249,10 @@ class Process(object):
                         self.monitor.record(self.env.now, self.name, None, part_id=part.id,
                                             event="tp_going_to_next_process", resource=tp.name)
                         distance_to_move = self.network[self.name][next_process_name]
-                        yield self.env.timeout(distance_to_move/tp.v_loaded)
+                        tp.distance += distance_to_move
+                        time_to_move = distance_to_move / tp.v_loaded
+                        yield self.env.timeout(time_to_move)
+                        tp.moving_time += time_to_move
                         self.monitor.record(self.env.now, next_process_name, None, part_id=part.id,
                                             event="tp_finished_transferred_to_next_process", resource=tp.name)
                         next_process.buffer_to_machine.put(part)

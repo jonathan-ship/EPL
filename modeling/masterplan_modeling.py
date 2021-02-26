@@ -79,7 +79,7 @@ network_dist = pd.read_excel('../network/master_plan_distance.xlsx')
 network_dist = network_dist.set_index('Unnamed: 0', drop=True)
 # Resource
 tp_info = {}
-tp_num = 5
+tp_num = 10
 for i in range(tp_num):
     tp_info["TP_{0}".format(i+1)] = {"capa": 100, "v_loaded": 0.5, "v_unloaded": 1.0}
 Resource = Resource(env, model, Monitor, tp_info=tp_info, network=network_dist)
@@ -105,3 +105,16 @@ print("simulation execution time :", finish - start)
 print("total time : ", finish - start_run)
 
 event_tracer = Monitor.save_event_tracer()
+print("#" * 80)
+print("# Master Plan using 10 Transporters")
+print("# Total simulation time : ", model['Sink'].last_arrival)
+print('# Total moving time and utilization of each transporter')
+tp_df = pd.DataFrame([], columns=['distance', 'Utilization'])
+for process in process_list:
+    if len(model[process].tp_store.items) > 0:
+        for tp in model[process].tp_store.items:
+            tp_df.loc[tp.name] = [tp.distance, tp.moving_time/model['Sink'].last_arrival]
+tp_df = tp_df.sort_index()
+# tp_df = tp_df.reindex(index=['TP_1', 'TP_2', 'TP_3', 'TP_4', 'TP_5', 'TP_6', 'TP_7', 'TP_8', 'TP_9', 'TP_10']
+print(tp_df)
+

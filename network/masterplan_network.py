@@ -58,6 +58,7 @@ for location_type_1 in gis_network.nodes():
             distance = np.random.randint(100)
             gis_network.edges[location_type_1, location_type_2]['distance'] = distance
             df_distance[location_type_1][location_type_2] = distance
+            df_distance[location_type_2][location_type_1] = distance
         else:
             df_distance[location_type_1][location_type_2] = 0
             if location_type_1 != location_type_2:
