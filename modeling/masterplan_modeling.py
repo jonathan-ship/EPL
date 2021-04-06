@@ -6,7 +6,7 @@ import time
 import random
 from datetime import datetime
 
-from SimComponents_rev import Source, Resource, Process, Sink, Monitor, Part
+from SimComponents import Source, Resource, Process, Sink, Monitor, Part
 start_run = time.time()
 
 ## Pre-Processing
