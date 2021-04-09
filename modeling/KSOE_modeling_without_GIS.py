@@ -126,7 +126,7 @@ data.sort_values(by=[(0, 'start_time')], axis=0, inplace=True)
 ''' ## input data from dataframe to Part class ## '''
 parts = OrderedDict()
 for i in range(len(data)):
-    parts[data.index[i]] = (Part(data.index[i], data.iloc[i]))
+    parts[data.index[i]] = Part(data.index[i], data.iloc[i])
 
 ''' ## BOM data pre-processing'''
 block_assembly['호선'] = block_assembly['호선'].apply(lambda x: str(x))
@@ -152,7 +152,6 @@ for block_code in assembly_upper_list:
 '''
 adding information about upper block in Part class 
 '''
-upper_block_data = {}
 for block_code in assembly_list:
     if block_code in block_list:
         temp = block_assembly[block_assembly['block code'] == block_code]
@@ -160,10 +159,13 @@ for block_code in assembly_list:
             upper_block = temp.iloc[i]['upper block code']
             if upper_block in block_list:
                 parts[block_code].upper_block = upper_block
-            if upper_block in parts:
-                upper_block_part = parts.pop(block_code)
-                upper_block_data[block_code] = upper_block_part
-print(len(assembly_upper_list) == len(upper_block_data))
+
+upper_block_data = {}
+
+for upper_block in assembly_upper_list:
+    if upper_block in parts.keys():
+        upper_block_part = parts.pop(upper_block)
+        upper_block_data[upper_block] = upper_block_part
 
 ''' ## modeling ## '''
 env = simpy.Environment()

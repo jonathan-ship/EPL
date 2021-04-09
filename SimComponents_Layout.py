@@ -559,16 +559,12 @@ class Assembly(object):
         self.monitor = monitor
 
     def assemble(self, part):
-        if part.upper_block== 'A0001_E11A3':
-            print(0)
         upper_block = self.assembly_parts[part.upper_block]
 
         upper_block.assemble_part.append(part)
         self.monitor.record(self.env.now, 'Assemble', None, part_id=part.id, event="assemble to {}".format(upper_block.id))
 
         if len(upper_block.lower_block_list) == len(upper_block.assemble_part):  ## 필요한 블록이 다 모이면
-            if upper_block.id == 'A0001_E11A0':
-                print(0)
             new_create_upper_block = self.assembly_parts.pop(upper_block.id)
             self.source.parts[upper_block.id] = new_create_upper_block
             self.monitor.record(self.env.now, 'Assemble', None, part_id=upper_block.id, event="ready to create")
