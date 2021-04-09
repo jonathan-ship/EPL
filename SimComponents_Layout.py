@@ -230,8 +230,6 @@ class Process(object):
                 if part.data[(part.step, 'activity')] == 'C11' or part.data[(part.step, 'activity')] == 'C12' or \
                         part.data[(part.step, 'activity')] == 'C13' or part.data[(part.step, 'activity')] == 'C14' or \
                         part.data[(part.step, 'activity')] == 'C15':
-                    if part.id == 'A0001_E11A0':
-                        print(0)
                     self.model['Assembly'].assemble(part)
                     continue
 

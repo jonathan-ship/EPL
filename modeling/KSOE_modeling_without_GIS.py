@@ -198,4 +198,14 @@ print("data pre-processing : ", start_simulation - start_running)
 print("simulation execution time :", finish_simulation - start_simulation)
 print("total time : ", finish_simulation - start_running)
 
+
+block_array = np.array(block_list)
+for i in range(len(monitor.event)):
+    if monitor.event[i] == "part_created":
+        if monitor.part_id[i] in block_list:
+            idx = np.argwhere(block_list == monitor.part_id[i])
+            np.delete(monitor.part_id[i], idx)
+
+print(len(block_list))
+print(block_list)
 event_tracer = monitor.save_event_tracer()
