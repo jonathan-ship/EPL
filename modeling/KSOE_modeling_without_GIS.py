@@ -54,7 +54,8 @@ convert_to_process = {'가공소조립부 1야드' : '선각공장', '가공소�
                                                         '2야드 도장 1공장', '2야드 도장 2공장', '2야드 도장 3공장',
                                                         '2야드 도장 5공장', '2야드 도장 6공장'],
                       '선실생산부': '선실공장', '선행의장부': PE_Shelter, '기장부': PE_Shelter, '의장1부': PE_Shelter,
-                      '의장3부': PE_Shelter, '도장1부': '도장1부', '도장2부': '도장2부', '발판지원부': '발판지원부', '외부': '외부'}
+                      '의장3부': PE_Shelter, '도장1부': '도장1부', '도장2부': '도장2부', '발판지원부': '발판지원부', '외부': '외부',
+                      '포항공장부': '포항공장부', '특수선': '특수선', '해양외업생산부': '해양외업생산부'}
 
 shop_list = []
 for shop in convert_to_process.values():
@@ -72,12 +73,14 @@ for i in range(len(PE_Shelter)):
 
 for shop in shop_list:
     if '쉘터' not in shop:
-        if '도크' not in shop:
+        if '도크' in shop:
             machine_dict[shop] = 10
-        elif shop == '2도크':
-            machine_dict[shop] = 2
+        elif shop == '외부':
+            machine_dict[shop] = 10000
         else:
-            machine_dict[shop] = 1
+            machine_dict[shop] = 30
+
+
 print('defining converting process and number of machines is done at ', time.time() - start_running)
 
 '''
@@ -121,7 +124,7 @@ for block_code in block_list:
 
     data.loc[block_code][(n, 'process')] = 'Sink'
 print('reassembling data is done at ', time.time() - start_running)
-data.sort_values(by=[(0, 'start_time')], axis=0, inplace=True)
+# data.sort_values(by=[(0, 'start_time')], axis=0, inplace=True)
 
 ''' ## input data from dataframe to Part class ## '''
 parts = OrderedDict()
@@ -141,13 +144,13 @@ assembly_upper_list = list(block_assembly.drop_duplicates(['upper block code'])[
 adding information about lower block in Part class 
 it can contain multiple blocks
 '''
-for block_code in assembly_upper_list:
-    if block_code in block_list:
-        temp = block_assembly[block_assembly['upper block code'] == block_code]
+for upper_block in assembly_upper_list:
+    if upper_block in block_list:
+        temp = block_assembly[block_assembly['upper block code'] == upper_block]
         for i in range(len(temp)):
             lower_block = temp.iloc[i]['block code']
-            if lower_block in block_list:
-                parts[block_code].lower_block_list.append(lower_block)
+            if lower_block in parts:
+                parts[upper_block].lower_block_list.append(lower_block)
 
 '''
 adding information about upper block in Part class 
@@ -167,6 +170,9 @@ for upper_block in assembly_upper_list:
         upper_block_part = parts.pop(upper_block)
         upper_block_data[upper_block] = upper_block_part
 
+lower_part_list = np.array(list(parts.keys()))
+upper_part_list = np.array(list(upper_block_data.keys()))
+
 ''' ## modeling ## '''
 env = simpy.Environment()
 model = {}
@@ -176,7 +182,7 @@ monitor = Monitor('../result/event_log_Layout_without_GIS.csv')
 source = Source(env, parts, model, monitor, convert_dict=convert_to_process)
 for i in range(len(shop_list) + 1):
     if i == len(shop_list):
-        model['Sink'] = Sink(env, monitor)
+        model['Sink'] = Sink(env, model, monitor)
     else:
         model[shop_list[i]] = Process(env, shop_list[i], machine_dict[shop_list[i]], model, monitor, convert_dict=convert_to_process)
 
@@ -192,20 +198,8 @@ print('#' * 80)
 print("Results of simulation")
 print('#' * 80)
 
-
 # 코드 실행 시간
 print("data pre-processing : ", start_simulation - start_running)
 print("simulation execution time :", finish_simulation - start_simulation)
 print("total time : ", finish_simulation - start_running)
 
-
-block_array = np.array(block_list)
-for i in range(len(monitor.event)):
-    if monitor.event[i] == "part_created":
-        if monitor.part_id[i] in block_list:
-            idx = np.argwhere(block_list == monitor.part_id[i])
-            np.delete(monitor.part_id[i], idx)
-
-print(len(block_list))
-print(block_list)
-event_tracer = monitor.save_event_tracer()
