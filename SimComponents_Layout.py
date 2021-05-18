@@ -118,6 +118,7 @@ class Source(object):
         self.converting = convert_dict
 
         self.action = env.process(self.run())
+        self.sent = 0
 
     def run(self):
         while True:
@@ -125,7 +126,6 @@ class Source(object):
                 sorted(self.parts.items(), key = lambda x: x[1].data[(0, 'start_time')]))
 
             part = self.parts.popitem(last=False)[1]
-
             IAT = part.data[(0, 'start_time')] - self.env.now
             if IAT > 0:
                 yield self.env.timeout(part.data[(0, 'start_time')] - self.env.now)
@@ -140,11 +140,17 @@ class Source(object):
                 next_process = random.choice(next_process_list)
             else:
                 next_process = next_process_list
+
             self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="part_transferred_to_first_process")
             self.model[next_process].buffer_to_machine.put(part)
+            self.sent += 1
             # print(part.id, 'is transferred to ', next_process, 'at ', self.env.now)
 
-            if len(self.parts) == 0:
+            if (len(self.parts) == 0) and (len(self.model['Assembly'].assembly_parts) > 0):
+                self.model['Assembly'].delay.append(self.env.event())
+                yield self.model['Assembly'].delay[-1]
+                continue
+            elif (len(self.parts) ==0) and (len(self.model['Assembly'].assembly_parts) == 0):
                 print("all parts are sent at : ", self.env.now)
                 break
 
@@ -225,22 +231,16 @@ class Process(object):
         while True:
             part = yield self.buffer_to_process.get()
 
-            ## 조립일 경우 Assembly 함수로 보냄
+            # 조립일 경우 Assembly 함수로 보냄
             if part.upper_block is not None:
-                if part.data[(part.step, 'activity')] == 'C11' or part.data[(part.step, 'activity')] == 'C12' or \
+                if part.data[(part.step, 'activity')] == 'C11' or part.data[(part.step, 'activity')] == 'G4B' or \
                         part.data[(part.step, 'activity')] == 'C13' or part.data[(part.step, 'activity')] == 'C14' or \
-                        part.data[(part.step, 'activity')] == 'C15':
+                        part.data[(part.step, 'activity')] == 'B11' or part.data[(part.step, 'activity')] == 'K4B':
                     self.model['Assembly'].assemble(part)
                     continue
 
             # next process
             step = 1
-            # while not part.data[(part.step + step, 'process_time')]:
-            #     if part.data[(part.step + step, 'process')] != 'Sink':
-            #         step += 1
-            #         break
-            #     else:
-            #         break
             next_process_name_before_convert = part.data[(part.step + step, 'process')]
             if next_process_name_before_convert != 'Sink':
                 next_process_list = self.converting[next_process_name_before_convert]
@@ -300,8 +300,8 @@ class Process(object):
                     next_process.buffer_to_machine.put(part)
                     self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="part_transferred_to_next_process")
             else:  # next_process == Sink
-                next_process.put(part)
                 self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="part_transferred_to_Sink")
+                next_process.put(part)
 
             part.step += step
             self.parts_sent += 1
@@ -353,6 +353,8 @@ class Machine(object):
         while True:
             self.broken = True
             part = yield self.machine.get()
+            # if part.id == "A0001_H11P3":
+            #     print(0)
             self.working = True
             wf = None
             # process_time
@@ -456,19 +458,25 @@ class Machine(object):
 
 
 class Sink(object):
-    def __init__(self, env, monitor):
+    def __init__(self, env, model, monitor):
         self.env = env
         self.name = 'Sink'
+        self.model = model
         self.monitor = monitor
 
         # self.tp_store = simpy.FilterStore(env)  # transporter가 입고 - 출고 될 store
         self.parts_rec = 0
         self.last_arrival = 0.0
+        self.completed_part = []
 
     def put(self, part):
-        self.parts_rec += 1
-        self.last_arrival = self.env.now
-        self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="completed")
+        if part.upper_block is None:
+            self.parts_rec += 1
+            self.last_arrival = self.env.now
+            self.monitor.record(self.env.now, self.name, None, part_id=part.id, event="completed")
+            self.completed_part.append(part.id)
+        else:
+            self.model['Assembly'].assemble(part)
 
 
 class Monitor(object):
@@ -498,7 +506,7 @@ class Monitor(object):
         event_tracer['Process'] = self.process
         event_tracer['SubProcess'] = self.subprocess
         event_tracer['Resource'] = self.resource
-        event_tracer.to_csv(self.filepath)
+        event_tracer.to_csv(self.filepath, encoding='utf-8-sig')
 
         return event_tracer
 
@@ -556,13 +564,18 @@ class Assembly(object):
         self.source = source
         self.monitor = monitor
 
+        self.assembled_part = 0
+        self.delay = []
+
     def assemble(self, part):
         upper_block = self.assembly_parts[part.upper_block]
 
         upper_block.assemble_part.append(part)
         self.monitor.record(self.env.now, 'Assemble', None, part_id=part.id, event="assemble to {}".format(upper_block.id))
-
         if len(upper_block.lower_block_list) == len(upper_block.assemble_part):  ## 필요한 블록이 다 모이면
+            self.assembled_part += len(upper_block.assemble_part)
             new_create_upper_block = self.assembly_parts.pop(upper_block.id)
-            self.source.parts[upper_block.id] = new_create_upper_block
-            self.monitor.record(self.env.now, 'Assemble', None, part_id=upper_block.id, event="ready to create")
+            self.source.parts[new_create_upper_block.id] = new_create_upper_block
+            self.monitor.record(self.env.now, 'Assemble', None, part_id=new_create_upper_block.id, event="ready to create")
+            if len(self.delay):
+                self.delay.pop(0).succeed()
