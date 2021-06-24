@@ -184,7 +184,7 @@ for i in range(len(shop_list) + 1):
     if i == len(shop_list):
         model['Sink'] = Sink(env, model, monitor)
     else:
-        model[shop_list[i]] = Process(env, shop_list[i], machine_dict[shop_list[i]], model, monitor, convert_dict=convert_to_process)
+        model[shop_list[i]] = Process(env, shop_list[i], 10000, model, monitor, convert_dict=convert_to_process)
 
 model['Assembly'] = Assembly(env, upper_block_data, source, monitor)
 
