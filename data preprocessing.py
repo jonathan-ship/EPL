@@ -19,7 +19,11 @@ AREA = []
 def determine_size_area(data):
     L = data['길이']
     B = data['폭']
-    size = min(L, B) if L * B > 0 else max(L, B)
+    H = data['높이']
+    size_list = [L, B, H]
+    if L * B * H == 0:
+        size_list.remove(0)
+    size = min(size_list) if len(size_list) > 0 else 0
     area = L * B
 
     return size, area
@@ -37,24 +41,88 @@ def append_list(block_code, process_code, start_date, finish_date, location, siz
     AREA.append(area)
 
 
+def convert_process(present_process, block_code):
+    # 현재 Step
+    series = block_code[:5]
+    process_convert_by_dict = convert_to_process[present_process] if present_process != 'Sink' else 'Sink'
+
+    # 1:1 대응
+    if type(process_convert_by_dict) == str:
+        return process_convert_by_dict
+    elif present_process == '건조1부' or present_process == '건조3부' or present_process == '건조2부':
+        if series[3] == 0:  # 한 자리수 호선
+            dock_num = dock_mapping[int(series[4]) - 1]['도크']
+            dock = '{0}도크'.format(dock_num)
+        else:  # 두 자리수 호선
+            dock_num = dock_mapping[int(series[-2:]) - 1]['도크']
+            dock = '{0}도크'.format(dock_num)
+        return dock
+    else:
+        return present_process
+
+
 start = time.time()
-series_list = []
+# series_list = []
 new_activity = pd.DataFrame(
     columns=['series_block_code', 'series', 'block_code', 'process_code', 'start_date', 'finish_date', 'location',
              'loc_indicator'])
-
-for i in range(1, 84):
+'''
+for i in range(1, 40):
     if i < 10:
         series_list.append("A000{0}".format(i))
     else:
         series_list.append("A00{0}".format(i))
-activity_data_all = pd.read_excel('./data/Layout_Activity_sample.xlsx', engine='openpyxl')
-bom_data_all = pd.read_excel('./data/Layout_BOM_sample.xlsx', engine='openpyxl')
+'''
 
+dock_mapping = pd.read_excel('./data/호선도크.xlsx')
+dock_mapping = dict(dock_mapping.transpose())
+mapping_table = pd.read_excel('./data/process_gis_mapping_table.xlsx')
+process_inout = {}
+for i in range(len(mapping_table)):
+   temp = mapping_table.iloc[i]
+   process_inout[temp['LOC']] = [temp['IN'], temp['OUT']]
+
+
+network = {}
+for i in range(12, 41):
+    from_to_matrix = pd.read_excel('./network/distance_above_{0}_meters.xlsx'.format(i), index_col=0)
+    # Virtual Stockyard까지의 거리 추가 --> 거리 = 0 (가상의 공간이므로)
+    from_to_matrix.loc['Virtual'] = 0.0
+    from_to_matrix.loc['Source'] = 0.0
+    from_to_matrix.loc['Sink'] = 0.0
+    from_to_matrix['Virtual'] = 0.0
+    from_to_matrix['Source'] = 0.0
+    from_to_matrix['Sink'] = 0.0
+    network[i] = from_to_matrix
+
+
+PE_Shelter = ['1도크쉘터', '2도크쉘터', '3도크쉘터', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
+               '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
+               '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터']
+
+convert_to_process = {'가공소조립부 1야드' : '선각공장', '가공소조립부 2야드': '2야드 중조공장', '대조립1부': '대조립 1공장',
+                      '대조립2부': '대조립 2공장', '대조립3부': '2야드 대조립공장', '의장생산부': '해양제관공장',
+                      '판넬조립1부': '선각공장', '판넬조립2부': '2야드 판넬공장', '건조1부': ['1도크', '2도크'], '건조2부': '3도크',
+                      '건조3부': ['8도크', '9도크'], '선행도장부': ['도장 1공장', '도장 2공장', '도장 3공장', '도장 4공장',
+                                                        '도장 5공장', '도장 6공장', '도장 7공장', '도장 8공장',
+                                                        '2야드 도장 1공장', '2야드 도장 2공장', '2야드 도장 3공장',
+                                                        '2야드 도장 5공장', '2야드 도장 6공장'],
+                      '선실생산부': '선실공장', '선행의장부': PE_Shelter, '기장부': PE_Shelter, '의장1부': PE_Shelter,
+                      '의장2부': PE_Shelter, '의장3부': PE_Shelter, '외부': '외부'}
+
+
+# 데이터 읽어오기
+activity_data_all = pd.read_excel('./data/Layout_Activity.xlsx', engine='openpyxl')
+bom_data_all = pd.read_excel('./data/Layout_BOM.xlsx', engine='openpyxl')
+# series_list = [i+1 for i in range(40)]
+series_list = [1]
 for series_num in series_list:
-    activity_data = activity_data_all[activity_data_all['호선'] == series_num]
-    bom_data = bom_data_all[bom_data_all['호선'] == series_num]
-    print("start series ", series_num)
+    series = 'A000{0}'.format(series_num) if series_num < 10 else 'A00{0}'.format(series_num)
+    activity_data = activity_data_all[activity_data_all['호선'] == series]
+    bom_data = bom_data_all[bom_data_all['호선'] == series]
+    series_area = []
+    series_size = []
+    print("start series ", series)
     # BOM data에 있는 블록만 골라내기
     # 필요없는 공정 골라내기
 
@@ -98,7 +166,7 @@ for series_num in series_list:
             activity_data = activity_data.drop(req_Index)
     block_list = list(activity_data.drop_duplicates(['block code'])['block code'])
     print('세부공종 제거')
-    activity_data.to_excel('./data/temp.xlsx')
+    activity_data.to_excel('./data/temp_{0}.xlsx'.format(series))
     block_group = activity_data.groupby(activity_data['block code'])  ## block code에 따른 grouping
 
     print('전처리 at', time.time() - start)
@@ -110,40 +178,65 @@ for series_num in series_list:
 
         if (block_data.iloc[0]['블록'] in child_list) or (block_data.iloc[0]['블록'] in parent_list):
             size, area = determine_size_area(bom_data[bom_data['블록'] == block_data.iloc[0]['블록']].iloc[0])
+            if size > 0:
+                series_size.append(size)
+            if area > 0:
+                series_area.append(area)
+
             heads = list(block_data.drop_duplicates(['process_head'])['process_head'])
             if len(block_data):
                 block_data = block_data.sort_values(by=['시작일'], ascending=True)
                 block_data = block_data.reset_index(drop=True)
                 previous_activity = block_data.iloc[0]
-                finish_date = 0
+
+                start_date = previous_activity['시작일']
+                finish_date = previous_activity['종료일']
+                work_station = previous_activity['작업부서']
+
                 for j in range(1, len(block_data)):
                     post_activity = block_data.iloc[j]
-                    if (post_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']) and \
-                        (previous_activity['작업부서'] not in ['도장1부', '도장2부', '발판지원부']):
-                        post_activity['작업부서'] = previous_activity['작업부서']
-                    elif (post_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']) and \
-                        (previous_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']):
-                        print(block_code)
-
-                    if previous_activity['작업부서'] != post_activity['작업부서']:
-                        append_list(block_code, previous_activity['공정공종'], previous_activity['시작일'], previous_activity['종료일'],
-                                    previous_activity['작업부서'], size, area)
-                        finish_date = previous_activity['종료일']
-                        previous_activity = post_activity
-
-                    else:
+                    if (post_activity['시작일'] >= start_date) and (post_activity['종료일'] <= finish_date):  # 후행이 선행에 포함
                         previous_dict = dict(previous_activity)
                         post_dict = dict(post_activity)
-                        previous_dict['종료일'] = post_dict['종료일'] if post_dict['종료일'] > previous_dict['종료일'] else previous_dict['종료일']
-                        previous_dict['공정공종'] = previous_dict['공정공종'][0] + post_dict['공정공종']
-                        if previous_dict['시작일'] < finish_date:
-                            previous_dict['시작일'] = finish_date + 1
-                        previous_activity = pd.Series(previous_dict)
+                        previous_dict['공정공종'] = previous_dict['공정공종'] + post_activity['공정공종'][0]
+                        continue
+                    else:
+                        if (j == 1) and (work_station in ['도장1부', '도장2부', '발판지원부']):  # 처음이 블록 이동이 없는 데 속하고, 이전 공정이라는 게 존재하지 않을 경우
+                            previous_activity['작업부서'] = post_activity['작업부서']
+                        if (post_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']) and \
+                            (previous_activity['작업부서'] not in ['도장1부', '도장2부', '발판지원부']):
+                            post_activity['작업부서'] = previous_activity['작업부서']
+                        elif (post_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']) and \
+                            (previous_activity['작업부서'] in ['도장1부', '도장2부', '발판지원부']):
+                            post_activity['작업부서'] = work_station
 
-                    if j == len(block_data) - 1:  # 마지막이면
-                        append_list(block_code, previous_activity['공정공종'], previous_activity['시작일'],
-                                    previous_activity['종료일'],
-                                    previous_activity['작업부서'], size, area)
+                        if previous_activity['작업부서'] != post_activity['작업부서']:
+                            append_list(block_code, previous_activity['공정공종'], previous_activity['시작일'], previous_activity['종료일'],
+                                        previous_activity['작업부서'], size, area)
+                            finish_date = previous_activity['종료일']
+                            work_station = previous_activity['작업부서']
+                            previous_activity = post_activity
+
+                        else:
+                            previous_dict = dict(previous_activity)
+                            post_dict = dict(post_activity)
+                            previous_dict['종료일'] = post_dict['종료일'] if post_dict['종료일'] > previous_dict['종료일'] else previous_dict['종료일']
+                            previous_dict['공정공종'] = previous_dict['공정공종'][0] + post_dict['공정공종']
+                            if previous_dict['시작일'] < finish_date:
+                                previous_dict['시작일'] = finish_date + 1
+                            previous_activity = pd.Series(previous_dict)
+                            work_station = previous_activity['작업부서']
+
+                        if j == len(block_data) - 1:  # 마지막이면
+                            append_list(block_code, previous_activity['공정공종'], previous_activity['시작일'],
+                                        previous_activity['종료일'],
+                                        previous_activity['작업부서'], size, area)
+
+    # size, area
+    size_mean = np.mean(series_size)
+    area_mean = np.mean(series_area)
+    SIZE = list(map(lambda x: size_mean if x == 0 else x, SIZE))
+    AREA = list(map(lambda x: area_mean if x == 0 else x, AREA))
 
         # else:
         #     print(block_code)
@@ -165,63 +258,7 @@ print('Finish at', time.time() - start)
 
 ## SIZE, AREA REDETERMINE
 data = pd.read_excel('./data/new_activity_A0001.xlsx')
-#dock_mapping = pd.read_excel('./data/호선도크.xlsx')
-#dock_mapping = dict(dock_mapping)
-#mapping_table = pd.read_excel('./data/process_gis_mapping_table.xlsx')
-#process_inout = {}
-#for i in range(len(mapping_table)):
-#    temp = mapping_table.iloc[i]
-#    process_inout[temp['LOC']] = [temp['IN'], temp['OUT']]
-#
-size = list(data['size'])
-area = list(data['area'])
-size_wo_0 = [item for item in size if item != 0]
-area_wo_0 = [item for item in area if item != 0]
-size_mean = np.mean(size_wo_0)
-area_mean = np.mean(area_wo_0)
-#
-data['size'] = data['size'].replace(0, size_mean)
-data['area'] = data['area'].replace(0, area_mean)
 
-network = {}
-for i in range(12, 41):
-    from_to_matrix = pd.read_excel('./network/distance_above_{0}_meters.xlsx'.format(i), index_col=0)
-    # Virtual Stockyard까지의 거리 추가 --> 거리 = 0 (가상의 공간이므로)
-    from_to_matrix.loc['Virtual'] = 0.0
-    from_to_matrix.loc['Source'] = 0.0
-    from_to_matrix.loc['Sink'] = 0.0
-    from_to_matrix['Virtual'] = 0.0
-    from_to_matrix['Source'] = 0.0
-    from_to_matrix['Sink'] = 0.0
-    network[i] = from_to_matrix
-
-
-PE_Shelter = ['1도크쉘터', '2도크쉘터', '3도크쉘터', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
-               '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
-               '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터']
-
-convert_to_process = {'가공소조립부 1야드' : '선각공장', '가공소조립부 2야드': '2야드 중조공장', '대조립1부': '대조립 1공장',
-                      '대조립2부': '대조립 2공장', '대조립3부': '2야드 대조립공장', '의장생산부': '해양제관공장',
-                      '판넬조립1부': '선각공장', '판넬조립2부': '2야드 판넬공장', '건조1부': ['1도크', '2도크'], '건조2부': '3도크',
-                      '건조3부': ['8도크', '9도크'], '선행도장부': ['도장 1공장', '도장 2공장', '도장 3공장', '도장 4공장',
-                                                        '도장 5공장', '도장 6공장', '도장 7공장', '도장 8공장',
-                                                        '2야드 도장 1공장', '2야드 도장 2공장', '2야드 도장 3공장',
-                                                        '2야드 도장 5공장', '2야드 도장 6공장'],
-                      '선실생산부': '선실공장', '선행의장부': PE_Shelter, '기장부': PE_Shelter, '의장1부': PE_Shelter,
-                      '의장3부': PE_Shelter, '외부': '외부'}
-
-
-def convert_process(present_process):
-    # 현재 Step
-    process_convert_by_dict = convert_to_process[present_process] if present_process != 'Sink' else 'Sink'
-
-    # 1:1 대응
-    if type(process_convert_by_dict) == str:
-        return process_convert_by_dict
-    elif present_process == '건조1부' or present_process == '건조3부':
-        return '8도크'
-    else:
-        return present_process
     # # dock 가야 하는 경우 -> random
 
     # elif (present_process == "선행도장부") or
@@ -262,7 +299,7 @@ for block_code in block_list:
     for i in range(len(block)):
         present_data = list(block.iloc[i])
         present_process = block.iloc[i]['location']
-        convert_present_process = convert_process(present_process)
+        convert_present_process = convert_process(present_process, block_code)
         if convert_present_process != 'Impossible':
             present_data[7] = convert_present_process
             block.iloc[i] = present_data
@@ -271,8 +308,8 @@ for block_code in block_list:
             new_dataframe.loc[len(new_dataframe)] = present_data
     # new_dataframe.loc[(len(new_dataframe)] = [0]
 
-new_dataframe.to_excel('./data/Layout_data.xlsx')
-data.to_excel('./data/Layout_data_pre.xlsx')
+new_dataframe.to_excel('./data/Layout_data_A0001.xlsx')
+data.to_excel('./data/Layout_data_series_A0001.xlsx')
 
 
 print(0)
