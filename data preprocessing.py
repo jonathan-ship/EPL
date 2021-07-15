@@ -114,8 +114,7 @@ convert_to_process = {'가공소조립부 1야드' : '선각공장', '가공소�
 # 데이터 읽어오기
 activity_data_all = pd.read_excel('./data/Layout_Activity.xlsx', engine='openpyxl')
 bom_data_all = pd.read_excel('./data/Layout_BOM.xlsx', engine='openpyxl')
-# series_list = [i+1 for i in range(40)]
-series_list = [1]
+series_list = [i+1 for i in range(30)]
 for series_num in series_list:
     series = 'A000{0}'.format(series_num) if series_num < 10 else 'A00{0}'.format(series_num)
     activity_data = activity_data_all[activity_data_all['호선'] == series]
@@ -166,7 +165,6 @@ for series_num in series_list:
             activity_data = activity_data.drop(req_Index)
     block_list = list(activity_data.drop_duplicates(['block code'])['block code'])
     print('세부공종 제거')
-    activity_data.to_excel('./data/temp_{0}.xlsx'.format(series))
     block_group = activity_data.groupby(activity_data['block code'])  ## block code에 따른 grouping
 
     print('전처리 at', time.time() - start)
@@ -252,12 +250,12 @@ new_activity['finish_date'] = FINISH_DATE
 new_activity['location'] = LOCATION
 new_activity['size'] = SIZE
 new_activity['area'] = AREA
-new_activity.to_excel('./data/new_activity_A0001.xlsx')
+new_activity.to_excel('./data/new_activity_series20.xlsx')
 
 print('Finish at', time.time() - start)
 
 ## SIZE, AREA REDETERMINE
-data = pd.read_excel('./data/new_activity_A0001.xlsx')
+data = pd.read_excel('./data/new_activity_series20.xlsx')
 
     # # dock 가야 하는 경우 -> random
 
@@ -308,8 +306,8 @@ for block_code in block_list:
             new_dataframe.loc[len(new_dataframe)] = present_data
     # new_dataframe.loc[(len(new_dataframe)] = [0]
 
-new_dataframe.to_excel('./data/Layout_data_A0001.xlsx')
-data.to_excel('./data/Layout_data_series_A0001.xlsx')
+new_dataframe.to_excel('./data/Layout_data_series30.xlsx')
+data.to_excel('./data/Layout_data_series_30.xlsx')
 
 
 print(0)

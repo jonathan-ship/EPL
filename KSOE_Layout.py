@@ -9,7 +9,7 @@ import matplotlib.ticker as ticker
 import math
 import os
 
-save_path = './result/Series1 - A0001'
+save_path = './result/Series40'
 if not os.path.exists(save_path):
    os.makedirs(save_path)
 
@@ -19,10 +19,27 @@ print("## Start preprocessing... ")
 # 적치장
 stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6']
 
+stock_area_data = pd.read_excel('./data/Stockyard_area.xlsx')
+stock_area = {}
+for i in range(len(stock_area_data)):
+    temp = stock_area_data.iloc[i]
+    stock_area[temp['Stock']] = temp['area']
+stock_area['Y9'] = 3200  # 최소값
+
 # 쉘터
 PE_Shelter = ['1도크쉘터', '2도크쉘터', '3도크쉘터', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
                '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
                '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터']
+
+Shelter_area_data = pd.read_excel('./data/Shelter_area.xlsx')
+shelter_area = {}
+for i in range(len(Shelter_area_data)):
+    temp = Shelter_area_data.iloc[i]
+    shelter_area[temp['Shelter']] = temp['area']
+shelter_area['1도크쉘터'] = 4675  # 평균값
+shelter_area['2도크쉘터'] = 4675
+shelter_area['3도크쉘터'] = 4675
+
 # server_PE_Shelter = [1, 2, 1, 2, 2, 9, 7, 1, 3, 3, 1, 2, 2, 2, 2, 1, 4, 2]
 
 # data - real matching
@@ -57,7 +74,7 @@ process_list = list(process_inout.keys())
 
 
 # block_data
-data_all = pd.read_excel('./data/Layout_data_A0001.xlsx')
+data_all = pd.read_excel('./data/Layout_data_series40.xlsx')
 bom_all = pd.read_excel('./data/Layout_BOM.xlsx')
 bom_all['child code'] = bom_all['호선'] + '_' + bom_all['블록']
 bom_all.loc[:, '상위블록'] = bom_all['상위블록'].apply(lambda x: str(x))
@@ -147,7 +164,7 @@ network[12] = from_to_matrix
 
 print("## Finish data preprocessing and Start modeling at", time.time() - start)
 
-monitor = Monitor(save_path+'/result_A0001.csv', network)
+monitor = Monitor(save_path+'/result_series40.csv', network)
 
 env = simpy.Environment()
 parts = {}
@@ -155,7 +172,7 @@ processes = {}
 stock_yard = {}
 
 tp_info = {}
-tp_num = 1
+tp_num = 30
 v_loaded = 3 * 1000 * 24  # m / day
 v_unloaded = 10 * 1000 * 24
 for i in range(tp_num):
@@ -181,9 +198,12 @@ Painting_process = ['도장 1공장', '도장 2공장', '도장 3공장', '도�
 
 # Process modeling
 for process in process_list:
-    if (process in PE_Shelter) or (process in Painting_process):
+    if process in PE_Shelter:
         processes[process] = Process(env, process, 5000, processes, parts, monitor, resource=resource,
-                                     convert_dict=convert_to_process, area=1000)
+                                     convert_dict=convert_to_process, area=shelter_area[process])
+    elif process in Painting_process:
+        processes[process] = Process(env, process, 5000, processes, parts, monitor, resource=resource,
+                                     convert_dict=convert_to_process, area=3000)
     else:
         processes[process] = Process(env, process, 5000, processes, parts, monitor, resource=resource,
                                      convert_dict=convert_to_process)
@@ -196,7 +216,7 @@ processes['Shelter'] = Process(env, 'Shelter', 5000, processes, parts, monitor, 
 
 # StockYard modeling
 for stock in stocks:
-    stock_yard[stock] = StockYard(env, stock, parts, monitor, capacity=1000)
+    stock_yard[stock] = StockYard(env, stock, parts, monitor, capacity=stock_area[stock])
 
 stock_yard['Virtual'] = StockYard(env, 'Virtual', parts, monitor, capacity=float('inf'))
 
@@ -204,13 +224,19 @@ start_sim = time.time()
 print("## Preprocessing and Modeling are ended, and Start to run at", start_sim-start)
 env.run()
 finish_sim = time.time()
-print("Execution time:", finish_sim-start_sim)
+print("PreProcessing_time: {0} mins".format((start_sim - start)/60))
+print("Execution time: {0} mins".format((finish_sim-start_sim)/60))
 monitor.save_event_tracer()
-# monitor.save_road_info()
+monitor.save_road_info()
 
 from matplotlib import font_manager, rc
 
 print("## Start post-processing at", time.time() - start)
+
+print("number of part created = ", monitor.created)
+print("number of completed = ", monitor.completed)
+
+
 font_name = font_manager.FontProperties(fname="C:\Windows\Fonts\H2GTRM.TTF").get_name()
 rc('font', family=font_name)
 save_path_stock = save_path + '/Stock'
@@ -234,22 +260,19 @@ for stock in stocks:
              area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
              ax.yaxis.set_major_locator(ticker.MultipleLocator(area_digit))
          else:
-             area_ratio = list(map(lambda x: x/stock_area, event_area))
-             line = ax.plot(event_time, area_ratio, color="blue", marker="o")
+             line = ax.plot(event_time, event_area, color="blue", marker="o")
              ax.set_ylabel("Ratio")
-             ax.set_ylim([0, 1.1])
-             ax.yaxis.set_major_locator(ticker.MultipleLocator(0.2))
+             ax.set_ylim([0, stock_area*1.05])
+             area_unit = math.ceil(stock_area/10)
+             ax.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
 
          ax.set_title("{0} occupied area".format(stock), fontsize=13, fontweight="bold")
          ax.set_xlabel("Time")
-
-
 
          filepath = save_path_stock + '/{0}.png'.format(stock)
          plt.savefig(filepath, dpi=600, transparent=True)
          plt.show()
          print("### {0} ###".format(stock))
-         print(area_ratio)
 
 save_path_painting = save_path + '/Painting'
 if not os.path.exists(save_path_painting):
@@ -261,15 +284,16 @@ for paint in Painting_process:
     stock_area = each_painting_process.area
     event_area = each_painting_process.event_area
     if len(event_area) > 0:
-        area_ratio = list(map(lambda x: x / stock_area, event_area))
+        # area_ratio = list(map(lambda x: x / stock_area, event_area))
         event_time = each_painting_process.event_time
         event_block_num = each_painting_process.event_block_num
         fig, ax1 = plt.subplots()  # ax1: area - bar graph / ax2: # of blocks - line graph
         ax2 = ax1.twinx()
         if paint != "Painting":
-            bar = ax1.bar(event_time, area_ratio, color="orange", label="occupied area", width=5)
-            ax1.set_ylim([0, 1.05])
-            ax1.yaxis.set_major_locator(ticker.MultipleLocator(0.1))
+            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
+            ax1.set_ylim([0, stock_area*1.05])
+            area_unit = math.ceil(stock_area / 10)
+            ax1.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
         else:
             bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
             ax1.set_ylim([0, max(event_area) * 1.2])
@@ -296,7 +320,7 @@ for paint in Painting_process:
         plt.show()
 
         print("### {0} ###".format(paint))
-        print(area_ratio)
+
 
 save_path_shelter = save_path + '/Shelter'
 if not os.path.exists(save_path_shelter):
@@ -305,19 +329,19 @@ if not os.path.exists(save_path_shelter):
 PE_Shelter.append("Shelter")
 for shelter in PE_Shelter:
     each_shelter = processes[shelter]
-    stock_area = each_shelter.area
+    shelter_area = each_shelter.area
     event_area = each_shelter.event_area
     if len(event_area) > 0:
-        area_ratio = list(map(lambda x: x / stock_area, event_area))
         event_time = each_shelter.event_time
         event_block_num = each_shelter.event_block_num
         fig, ax1 = plt.subplots()  # ax1: area - bar graph / ax2: # of blocks - line graph
         ax2 = ax1.twinx()
         ax2.set_ylim([0, max(event_block_num) * 1.2])
         if shelter != "Shelter":
-            bar = ax1.bar(event_time, area_ratio, color="orange", label="occupied area", width=5)
-            ax1.set_ylim([0, 1.05])
-            ax1.yaxis.set_major_locator(ticker.MultipleLocator(0.1))
+            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
+            ax1.set_ylim([0, shelter_area])
+            area_unit = math.ceil(shelter_area / 10)
+            ax1.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
         else:
             bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
             ax1.set_ylim([0, max(event_area) * 1.2])
@@ -341,7 +365,6 @@ for shelter in PE_Shelter:
         plt.show()
 
         print("### {0} ###".format(shelter))
-        print(area_ratio)
 
 
 part_moving_distance = {}
@@ -361,19 +384,18 @@ info_part_moving = info_part_moving.transpose()
 info_part_moving.to_excel(save_path + '/part_distance.xlsx')
 
 
-tp_time = [i for i in range(math.ceil(processes['Sink'].last_arrival) + 1)]
+tp_time = [i for i in range(math.ceil(processes['Sink'].last_arrival)+1)]
 tp_unloaded_distance = [0 for _ in range(len(tp_time))]  # 상차 이동 거리
 tp_loaded_distance = tp_unloaded_distance[:]  # 하차 이동 거리
 tp_used_time_loaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (상차)
 tp_used_time_unloaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (하차)
-
 for tp in resource.tp_post_processing.keys():
     each_tp = resource.tp_post_processing[tp]
     ## loaded
     loaded_time = each_tp['loaded']['moving_time']
     for i in range(len(loaded_time)):
-        start_time = round(loaded_time[i][0])
-        finish_time = round(loaded_time[i][1])
+        start_time = int(round(loaded_time[i][0]))
+        finish_time = int(round(loaded_time[i][1]))
         if start_time == finish_time:
             tp_loaded_distance[start_time] += each_tp['loaded']['moving_distance'][i]
             tp_used_time_loaded[start_time] += loaded_time[i][1] - loaded_time[i][0]
@@ -388,8 +410,8 @@ for tp in resource.tp_post_processing.keys():
     ## unloaded
     unloaded_time = each_tp['unloaded']['moving_time']
     for i in range(len(unloaded_time)):
-        start_time = round(unloaded_time[i][0])
-        finish_time = round(unloaded_time[i][1])
+        start_time = int(round(unloaded_time[i][0]))
+        finish_time = int(round(unloaded_time[i][1]))
         if start_time == finish_time:
             tp_unloaded_distance[start_time] += each_tp['unloaded']['moving_distance'][i]
             tp_used_time_unloaded[start_time] += unloaded_time[i][1] - unloaded_time[i][0]
@@ -428,3 +450,5 @@ filepath = save_path + '/TP_distance.png'
 plt.savefig(filepath, dpi=600, transparent=True)
 plt.show()
 
+print("number of part created = ", monitor.created)
+print("number of completed = ", monitor.completed)

@@ -879,6 +879,9 @@ class Monitor:
         self.resource = []
         self.reason = []
 
+        self.created = 0
+        self.completed = 0
+
         self.network = network
         self.num_used_road_unloaded = {}
         self.num_used_road_loaded = {}
@@ -902,6 +905,11 @@ class Monitor:
         self.subprocess.append(subprocess)
         self.resource.append(resource)
         self.reason.append(reason)
+
+        if event == 'part_created':
+            self.created += 1
+        elif event == 'completed':
+            self.completed += 1
 
     def save_event_tracer(self):
         event_tracer = pd.DataFrame(columns=['Time', 'Event', 'Part', 'Process', 'SubProcess'])
