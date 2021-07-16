@@ -759,8 +759,21 @@ class Machine:
                 try:
                     self.broken = False
                     ## working start
-                    self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
-                                        event="work_start")
+                    if self.process_name in ['1도크PE', '2도크PE', '3도크PE', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
+                                             '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
+                                             '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터', '8도크PE', '9도크PE']:
+                        self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
+                                            event="work_start", reason="Shelter")
+                    elif self.process_name in ['도장 1공장', '도장 2공장', '도장 3공장', '도장 4공장',
+                                               '도장 5공장', '도장 6공장', '도장 7공장', '도장 8공장',
+                                               '2야드 도장 1공장', '2야드 도장 2공장', '2야드 도장 3공장',
+                                               '2야드 도장 5공장', '2야드 도장 6공장']:
+                        self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
+                                            event="work_start", reason="Paint")
+                    else:
+                        self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
+                                            event="work_start")
+
                     self.working_start = self.env.now
                     yield self.env.timeout(proc_time)
 
