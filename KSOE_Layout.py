@@ -27,18 +27,18 @@ for i in range(len(stock_area_data)):
 stock_area['Y9'] = 3200  # 최소값
 
 # 쉘터
-PE_Shelter = ['1도크쉘터', '2도크쉘터', '3도크쉘터', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
+PE_Shelter = ['1도크PE', '2도크PE', '3도크PE', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
                '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
-               '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터']
+               '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터', '8도크PE', '9도크PE']
 
 Shelter_area_data = pd.read_excel('./data/Shelter_area.xlsx')
 shelter_area = {}
 for i in range(len(Shelter_area_data)):
     temp = Shelter_area_data.iloc[i]
     shelter_area[temp['Shelter']] = temp['area']
-shelter_area['1도크쉘터'] = 4675  # 평균값
-shelter_area['2도크쉘터'] = 4675
-shelter_area['3도크쉘터'] = 4675
+shelter_area['1도크PE'] = 4675  # 평균값
+shelter_area['2도크PE'] = 4675
+shelter_area['3도크PE'] = 4675
 
 # server_PE_Shelter = [1, 2, 1, 2, 2, 9, 7, 1, 3, 3, 1, 2, 2, 2, 2, 1, 4, 2]
 
@@ -224,8 +224,7 @@ start_sim = time.time()
 print("## Preprocessing and Modeling are ended, and Start to run at", start_sim-start)
 env.run()
 finish_sim = time.time()
-print("PreProcessing_time: {0} mins".format((start_sim - start)/60))
-print("Execution time: {0} mins".format((finish_sim-start_sim)/60))
+print("Execution time:", finish_sim-start_sim)
 monitor.save_event_tracer()
 monitor.save_road_info()
 
