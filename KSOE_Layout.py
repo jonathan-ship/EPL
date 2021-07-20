@@ -2,14 +2,13 @@ import simpy
 import pandas as pd
 import numpy as np
 import time
-import random
 from SimComponents_KSOE_Layout import Resource, Part, Sink, StockYard, Monitor, Process
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import math
 import os
 
-save_path = './result/Series40_and_adding_stock'
+save_path = './result/Series40_final'
 if not os.path.exists(save_path):
    os.makedirs(save_path)
 
@@ -17,9 +16,9 @@ start = time.time()
 print("## Start preprocessing... ")
 
 # 적치장
-# stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6', 'Y8']
-## 가상 적치장 Y1V
-stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6', 'Y8', 'Y1V']
+stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6', 'Y8']
+# stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6', 'Y8', 'Y1V']
+# stocks = ['E7', 'E8', 'E9', 'E4', 'E6', 'E5', 'Y81', 'Y9', 'Y4', 'Y7', 'Y5', 'Y2', 'Y1', 'Y3', 'Y6', 'Y8', 'Y2V']
 stock_area_data = pd.read_excel('./data/Stockyard_area.xlsx')
 stock_area = {}
 for i in range(len(stock_area_data)):
@@ -27,23 +26,20 @@ for i in range(len(stock_area_data)):
     stock_area[temp['Stock']] = temp['area']
 stock_area['Y9'] = 3200  # 최소값
 # 1야드 내, 가상의 적치장
-stock_area['Y1V'] = 22650
+# stock_area['Y1V'] = 22650
+# stock_area['Y2V'] = 22650
 
 # 쉘터
 PE_Shelter = ['1도크PE', '2도크PE', '3도크PE', '의장쉘터', '특수선쉘터', '선행의장1공장쉘터', '선행의장2공장쉘터',
                '선행의장3공장쉘터', '대조립쉘터', '뉴판넬PE장쉘터', '대조립부속1동쉘터', '대조립2공장쉘터', '선행의장6공장쉘터',
-               '화공설비쉘터', '판넬조립5부쉘터', '총조립SHOP쉘터', '대조립5부쉘터', '8도크PE', '9도크PE']
+               '화공설비쉘터', '판넬조립5부쉘터', '중조립SHOP쉘터', '대조립5부쉘터', '8도크PE', '9도크PE']
 
 Shelter_area_data = pd.read_excel('./data/Shelter_area.xlsx')
 shelter_area = {}
 for i in range(len(Shelter_area_data)):
     temp = Shelter_area_data.iloc[i]
     shelter_area[temp['Shelter']] = temp['area']
-shelter_area['1도크PE'] = 4675  # 평균값
-shelter_area['2도크PE'] = 4675
-shelter_area['3도크PE'] = 4675
-shelter_area['8도크PE'] = 4675
-shelter_area['9도크PE'] = 4675
+
 
 # server_PE_Shelter = [1, 2, 1, 2, 2, 9, 7, 1, 3, 3, 1, 2, 2, 2, 2, 1, 4, 2]
 
@@ -68,6 +64,7 @@ process_inout['Virtual'] = ['Virtual', 'Virtual']
 process_inout['Painting'] = ['Painting', 'Painting']
 process_inout['Shelter'] = ['Shelter', 'Shelter']
 process_inout['Y1V'] = ['Y1V', 'Y1V']
+process_inout['Y2V'] = ['Y1V', 'Y2V']
 
 # 호선 - 도크
 dock_mapping = pd.read_excel('./data/호선도크.xlsx')
@@ -90,7 +87,7 @@ bom_group_parent = bom_all.groupby(bom_all['parent code'])
 bom_group_child = bom_all.groupby(bom_all['child code'])
 block_list = list(data_all.drop_duplicates(['series_block_code'])['series_block_code'])
 
-print("## Finish reading data at", time.time() - start)
+print("## Finish reading data at {0} secs".format(round(time.time() - start, 2)))
 
 columns = pd.MultiIndex.from_product([[i for i in range(8)], ['start_time', 'process_time', 'process', 'work']])
 block_info = {}
@@ -148,7 +145,7 @@ for block_code in block_list:
     else:
         block_info[block_code]['child_block'] = None
 
-print("## Finish integrating Activity data and Bom data, and Start reading Network(distance) data at", time.time() - start)
+print("## Finish integrating Activity data and Bom data, and Start reading Network(distance) data at {0} mins".format(round((time.time() - start)/60, 1)))
 
 # network data
 network = {}
@@ -162,17 +159,19 @@ from_to_matrix.loc['Sink'] = 0.0
 from_to_matrix.loc['Painting'] = 0.0
 from_to_matrix.loc['Shelter'] = 0.0
 from_to_matrix.loc['Y1V'] = 0.0
+from_to_matrix.loc['Y2V'] = 0.0
 from_to_matrix['Virtual'] = 0.0
 from_to_matrix['Source'] = 0.0
 from_to_matrix['Sink'] = 0.0
 from_to_matrix['Painting'] = 0.0
 from_to_matrix['Shelter'] = 0.0
 from_to_matrix['Y1V'] = 0.0
+from_to_matrix['Y2V'] = 0.0
 network[12] = from_to_matrix
 
-print("## Finish data preprocessing and Start modeling at", time.time() - start)
+print("## Finish data preprocessing and Start modeling at {0} mins".format(round((time.time() - start)/60, 1)))
 
-monitor = Monitor(save_path+'/result_series40_adding_stock.csv', network)
+monitor = Monitor(save_path+'/result_series40.csv', network)
 
 env = simpy.Environment()
 parts = {}
@@ -229,16 +228,16 @@ for stock in stocks:
 stock_yard['Virtual'] = StockYard(env, 'Virtual', parts, monitor, capacity=float('inf'))
 
 start_sim = time.time()
-print("## Preprocessing and Modeling are ended, and Start to run at", start_sim-start)
+print("## Preprocessing and Modeling are ended, and Start to run at {0} mins".format(round((start_sim-start)/60, 1)))
 env.run()
 finish_sim = time.time()
-print("Execution time:", finish_sim-start_sim)
+print("Execution time: {0} mins".format(round((finish_sim-start_sim)/60, 1)))
 monitor.save_event_tracer()
 monitor.save_road_info()
 
 from matplotlib import font_manager, rc
 
-print("## Start post-processing at", time.time() - start)
+print("## Start post-processing at {0} mins".format(round((time.time() - start)/60, 1)))
 
 print("number of part created = ", monitor.created)
 print("number of completed = ", monitor.completed)
@@ -250,6 +249,40 @@ save_path_stock = save_path + '/Stock'
 if not os.path.exists(save_path_stock):
    os.makedirs(save_path_stock)
 
+
+start_time = monitor.time[0]
+finish_time = math.ceil(processes['Sink'].last_arrival)
+
+
+def for_graph_transformer_y_axis(x_axis_pre, y_axis_pre, start_time, finish_time):
+    for i in range(len(x_axis_pre)):
+        if i == 0:
+            first_x = float(x_axis_pre[0])
+            until = math.trunc(first_x) + 1 if math.ceil(first_x) != math.trunc(first_x) else math.trunc(first_x)
+            x_axis_pro = [i for i in range(start_time, until)]
+            y_axis_pro = [0 for _ in range(start_time, until)]
+            x_axis_pro.append(x_axis_pre[i])
+            y_axis_pro.append(y_axis_pre[i])
+        else:
+            current_x = float(x_axis_pre[i])
+            if math.trunc(current_x) > math.ceil(float(x_axis_pre[i-1])):
+                start = math.ceil(float(x_axis_pre[i-1]))
+                finish = math.trunc(current_x) if math.trunc(current_x) != math.ceil(current_x) else math.trunc(current_x) - 1
+                for time in range(start, finish + 1):
+                    x_axis_pro.append(time)
+                    y_axis_pro.append(y_axis_pro[-1])
+
+            x_axis_pro.append(current_x)
+            y_axis_pro.append(y_axis_pre[i])
+
+    if math.ceil(x_axis_pre[-1]) < finish_time:
+        for i in range(math.ceil(x_axis_pre[-1]), finish_time+1):
+            x_axis_pro.append(i)
+            y_axis_pro.append(y_axis_pre[-1])
+
+    return x_axis_pro, y_axis_pro
+
+
 stocks.append('Virtual')
 for stock in stocks:
      each_stock_yard = stock_yard[stock]
@@ -257,18 +290,20 @@ for stock in stocks:
      event_area = each_stock_yard.event_area
      if len(event_area) > 0:
          event_time = each_stock_yard.event_time
+         x_axis, y_axis = for_graph_transformer_y_axis(event_time, event_area, math.trunc(float(event_time[0]))-1, math.ceil(float(event_time[-1])) + 1)
          fig, ax = plt.subplots()
          if stock == 'Virtual':
-             line = ax.plot(event_time, event_area, color="blue", marker="o")
+             line = ax.plot(x_axis,y_axis, color="blue", marker="o")
              ax.set_ylabel("Area")
-             ax.set_ylim([0, max(event_area) * 1.2])
-             max_area_unit = math.ceil(max(event_area) / 10)
-             area_digit_num = len(str(max_area_unit)) - 1
-             area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
+             ax.set_ylim([0, 75000])
+             # max_area_unit = math.ceil(max(event_area) / 10)
+             # area_digit_num = len(str(max_area_unit)) - 1
+             # area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
+             area_digit = 10000
              ax.yaxis.set_major_locator(ticker.MultipleLocator(area_digit))
          else:
-             line = ax.plot(event_time, event_area, color="blue", marker="o")
-             ax.set_ylabel("Ratio")
+             line = ax.plot(x_axis, y_axis, color="blue", marker="o")
+             ax.set_ylabel("Area")
              ax.set_ylim([0, stock_area*1.05])
              area_unit = math.ceil(stock_area/10)
              ax.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
@@ -288,21 +323,23 @@ if not os.path.exists(save_path_painting):
 Painting_process.append("Painting")
 for paint in Painting_process:
     each_painting_process = processes[paint]
-    stock_area = each_painting_process.area
+    paint_area = each_painting_process.area
     event_area = each_painting_process.event_area
     if len(event_area) > 0:
         # area_ratio = list(map(lambda x: x / stock_area, event_area))
         event_time = each_painting_process.event_time
         event_block_num = each_painting_process.event_block_num
+        x_axis, y_axis = for_graph_transformer_y_axis(event_time, event_area, math.trunc(float(event_time[0])) - 1,
+                                                      math.ceil(float(event_time[-1])) + 1)
         fig, ax1 = plt.subplots()  # ax1: area - bar graph / ax2: # of blocks - line graph
         ax2 = ax1.twinx()
         if paint != "Painting":
-            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
-            ax1.set_ylim([0, stock_area*1.05])
-            area_unit = math.ceil(stock_area / 10)
+            bar = ax1.bar(x_axis, y_axis, color="orange", label="occupied area", width=5)
+            ax1.set_ylim([0, paint_area*1.05])
+            area_unit = math.ceil(paint_area / 10)
             ax1.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
         else:
-            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
+            bar = ax1.bar(x_axis, y_axis, color="orange", label="occupied area", width=5)
             ax1.set_ylim([0, max(event_area) * 1.2])
             max_area_unit = math.ceil(max(event_area) / 10)
             area_digit_num = len(str(max_area_unit)) - 1
@@ -341,16 +378,18 @@ for shelter in PE_Shelter:
     if len(event_area) > 0:
         event_time = each_shelter.event_time
         event_block_num = each_shelter.event_block_num
+        x_axis, y_axis = for_graph_transformer_y_axis(event_time, event_area, math.trunc(float(event_time[0])) - 1,
+                                                      math.ceil(float(event_time[-1])) + 1)
         fig, ax1 = plt.subplots()  # ax1: area - bar graph / ax2: # of blocks - line graph
         ax2 = ax1.twinx()
         ax2.set_ylim([0, max(event_block_num) * 1.2])
         if shelter != "Shelter":
-            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
+            bar = ax1.bar(x_axis, y_axis, color="orange", label="occupied area", width=5)
             ax1.set_ylim([0, shelter_area])
             area_unit = math.ceil(shelter_area / 10)
             ax1.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
         else:
-            bar = ax1.bar(event_time, event_area, color="orange", label="occupied area", width=5)
+            bar = ax1.bar(x_axis, y_axis, color="orange", label="occupied area", width=5)
             ax1.set_ylim([0, max(event_area) * 1.2])
             max_area_unit = math.ceil(max(event_area) / 10)
             area_digit_num = len(str(max_area_unit)) - 1
@@ -374,6 +413,8 @@ for shelter in PE_Shelter:
         print("### {0} ###".format(shelter))
 
 
+
+time_x_axis = [i for i in range(math.ceil(processes['Sink'].last_arrival)+1)]
 part_moving_distance = {}
 ## block 이동 거리
 for part in parts:
@@ -391,8 +432,8 @@ info_part_moving = info_part_moving.transpose()
 info_part_moving.to_excel(save_path + '/part_distance.xlsx')
 
 
-tp_time = [i for i in range(math.ceil(processes['Sink'].last_arrival)+1)]
-tp_unloaded_distance = [0 for _ in range(len(tp_time))]  # 상차 이동 거리
+
+tp_unloaded_distance = [0 for _ in range(len(time_x_axis))]  # 상차 이동 거리
 tp_loaded_distance = tp_unloaded_distance[:]  # 하차 이동 거리
 tp_used_time_loaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (상차)
 tp_used_time_unloaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (하차)
@@ -434,8 +475,8 @@ for tp in resource.tp_post_processing.keys():
 fig, ax = plt.subplots()
 tp_used_time_loaded_hour = list(map(lambda x: x*24, tp_used_time_loaded))
 tp_used_time_unloaded_hour = list(map(lambda x: x*24, tp_used_time_unloaded))
-unloaded_line_time = ax.plot(tp_time, tp_used_time_unloaded_hour, color="blue", marker=".", label="Unloaded")
-loaded_bar_time = ax.bar(tp_time, tp_used_time_loaded_hour, color="red", width=5, label="Loaded")
+unloaded_line_time = ax.plot(time_x_axis, tp_used_time_unloaded_hour, color="blue", marker=".", label="Unloaded")
+loaded_bar_time = ax.bar(time_x_axis, tp_used_time_loaded_hour, color="red", width=5, label="Loaded")
 ax.set_title("T/P time", fontsize=13, fontweight="bold")
 ax.set_xlabel("Time")
 ax.set_ylabel("Used Time [hr]")
@@ -447,8 +488,8 @@ plt.show()
 fig, ax = plt.subplots()
 tp_used_distance_loaded_km = list(map(lambda x: x*0.001, tp_loaded_distance))
 tp_used_distance_unloaded_km = list(map(lambda x: x*0.001, tp_unloaded_distance))
-unloaded_line_distance = ax.plot(tp_time, tp_used_distance_unloaded_km, color="blue", marker=".", label="Unloaded")
-loaded_bar_distance = ax.bar(tp_time, tp_used_distance_loaded_km, color="red", width=5, label="Loaded")
+unloaded_line_distance = ax.plot(time_x_axis, tp_used_distance_unloaded_km, color="blue", marker=".", label="Unloaded")
+loaded_bar_distance = ax.bar(time_x_axis, tp_used_distance_loaded_km, color="red", width=5, label="Loaded")
 ax.set_title("T/P Distance", fontsize=13, fontweight="bold")
 ax.set_xlabel("Time")
 ax.set_ylabel("Distance [km]")

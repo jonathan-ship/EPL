@@ -73,6 +73,7 @@ class Resource(object):
             tp = yield self.tp_store.get()
             self.monitor.record(self.env.now, None, None, part_id=None, event="tp_going_to_requesting_process",
                                 resource=tp.name)
+            print("{0} is going to {1} at {2}".format(tp.name, current_process, round(self.env.now, 2)))
             return tp, waiting
         # transporter가 전부 다른 공정에 가 있을 경우
         else:
@@ -128,6 +129,7 @@ class Resource(object):
                     tp = transporter(name=temp['name'], v_loaded=temp['v_loaded'],
                                      v_unloaded=temp['v_unloaded'], moving_dist=temp['moving_dist'],
                                      moving_time=temp['moving_time'])
+                    print("{0} is going to {1} at {2}".format(tp.name, current_process, round(self.env.now, 2)))
                     return tp, waiting
                 else:
                     waiting = True
@@ -220,7 +222,7 @@ class Part:
             if step == 0:
                 part = yield self.part_store.get()
                 self.monitor.record(self.env.now, None, None, part_id=self.name, event="part_created")
-                print("part created {0} at {1}".format(self.name, self.env.now))
+                print("{0} is created at {1}".format(self.name, round(self.env.now, 2)))
 
             elif self.in_stock:  # 적치장에 있는 경우 -> 시간에 맞춰서 꺼내줘야 함
                 if self.tp_flag:  # tp 사용 하는 경우
@@ -230,11 +232,13 @@ class Part:
                     # 적치장에서 block 꺼내오기
                     temp = yield self.stocks[self.where_stock].stock_yard.get(lambda x: x[1].name == self.name)
                     self.stocks[self.where_stock].area_used -= self.area
-                    print(self.name, 'At _sourcing /', 'Stock {0} out at {1}'.format(self.where_stock, self.env.now), 'area_used = {0} and preemptive_area = {1}'.format(self.stocks[self.where_stock].area_used, self.stocks[self.where_stock].preemptive_area))
+                    # print(self.name, 'At _sourcing /', 'Stock {0} out at {1}'.format(self.where_stock, self.env.now), 'area_used = {0} and preemptive_area = {1}'.format(self.stocks[self.where_stock].area_used, self.stocks[self.where_stock].preemptive_area))
                     self.stocks[self.where_stock].preemptive_area -= self.area
+                    '''
                     print(self.name, 'At _sourcing /', 'Stock {0} out at {1}, minus preemptive area'.format(self.where_stock, self.env.now),
                           'area_used = {0}, preemptive_area = {1}'.format(self.stocks[self.where_stock].area_used,
-                                                                          self.stocks[self.where_stock].preemptive_area))
+                                                                          self.stocks[self.where_stock].preemptive_area)) '''
+                    print("{0} has been out from Stock {1} at {2}".format(self.name, self.where_stock, round(self.env.now, 2)))
                     part = temp[1]
                     temp_part = part._asdict()
                     temp_part['location'] = process.name
@@ -251,16 +255,18 @@ class Part:
                     # 하루 전에 TP 호출
                     temp = yield self.stocks[self.where_stock].stock_yard.get(lambda x: x[1].name == self.name)
                     self.stocks[self.where_stock].area_used -= self.area
+                    '''
                     print(self.name, 'Stock {0} out at {1}'.format(self.where_stock, self.env.now),
                           'area_used = {0} and preemptive_area = {1}'.format(self.stocks[self.where_stock].area_used,
                                                                              self.stocks[
-                                                                                 self.where_stock].preemptive_area))
+                                                                                 self.where_stock].preemptive_area))'''
                     self.stocks[self.where_stock].preemptive_area -= self.area
+                    '''
                     print(self.name,
                           'Stock {0} out at {1}, minus preemptive area'.format(self.where_stock, self.env.now),
                           'area_used = {0}, preemptive_area = {1}'.format(self.stocks[self.where_stock].area_used,
                                                                           self.stocks[
-                                                                              self.where_stock].preemptive_area))
+                                                                              self.where_stock].preemptive_area))'''
 
                     part = temp[1]
                     temp_part = part._asdict()
@@ -271,6 +277,7 @@ class Part:
                     self.stocks[self.where_stock].event_area.append(self.stocks[self.where_stock].area_used)
                     self.stocks[self.where_stock].event_time.append(self.env.now)
                     self.monitor.record(self.env.now, part.location, None, part_id=self.name, event="Stock_out")
+                    print("{0} has been out from Stock {1} at {2}".format(self.name, self.where_stock, round(self.env.now, 2)))
                 self.in_stock = False
                 self.where_stock = None
             else:  # get part from previous process
@@ -296,8 +303,6 @@ class Part:
                     # if now is first step -> request tp and send to next process
                     tp, waiting = yield self.env.process(
                         self.resource.request_tp(self.source_location, self.size, self.name))
-                    if tp is None:
-                        print(0)
                     yield self.env.process(self.tp(process.name, self.source_location, part, tp, waiting,'In'))
                     step += 1
                 elif step and process.name != 'Sink':  # if now is not the first step, need to predict when part hv to move to the next process
@@ -380,8 +385,6 @@ class Part:
            self.processes['Sink'].put(part)
 
         else:
-            if next_process == '8도크' and current_process == 'Y4' and self.name == 'A0001_D15P1':
-                print(0)
             self.monitor.record(self.env.now, current_process, None, part_id=self.name, event="tp_request")
             next_process_name = self.inout[next_process][0] if inout == 'In' else self.inout[next_process][1]
             current_process_name = self.inout[current_process][1]  # 현재 공정 -> 다음 공정이므로, 현재 공정은 out 위치 잡아야
@@ -400,10 +403,10 @@ class Part:
                     self.monitor.record(self.env.now, current_process, None, part_id=self.name,
                                         event="delay_start_cus_no_tp")
                     self.resource.tp_waiting[(self.name, current_process)] = self.env.event()
-                    print("waiting event yield, part={0}, process={1}, time={2}".format(self.name, current_process, self.env.now))
+                    # print("waiting event is yielded, part={0}, process={1}, time={2}".format(self.name, current_process, self.env.now))
                     yield self.resource.tp_waiting[(self.name, current_process)]
-                    print("waiting event is ended yielding, part={0}, process={1}, time={2}".format(self.name, current_process,
-                                                                                        self.env.now))
+                    #print("waiting event is ended yielding, part={0}, process={1}, time={2}".format(self.name, current_process,
+                    #                                                                    self.env.now))
                     self.monitor.record(self.env.now, current_process, None, part_id=self.name,
                                         event="delay_finish_cus_yes_tp")
                     # yield self.env.timeout(1)
@@ -412,7 +415,7 @@ class Part:
                     # self.monitor.record(self.env.now, current_process, None, part_id=self.name,
                     #                     event="repeat {0}".format(repeat),
                     #                     reason='No TP available from {1} to {2} at part size {0}'.format(self.size, current_process, next_process))
-                    print(part.name, part.step, repeat, self.env.now)
+                    # print(part.name, part.step, repeat, self.env.now)
                     continue
             if tp:
                 road_size = max(12, math.ceil(self.size))
@@ -447,8 +450,6 @@ class Part:
                                         event="tp_finished_transferred_to_next_process", resource=tp.name)
 
                     # 적치장이 아닌 공장으로 갈 때
-                    if next_process is None:
-                        print(0)
                     if next_process not in self.stocks.keys():
                         self.processes[next_process].buffer_to_machine.put(part)
                         self.processes[next_process].tp_store.put(tp)
@@ -466,9 +467,9 @@ class Part:
                         for event_key in list(self.resource.tp_waiting.keys()):
                             if self.resource.tp_waiting[event_key].triggered is False:
                                 self.resource.tp_waiting.pop(event_key).succeed()
-                                print("waiting event has been succeeded, part={0}, process={1}, time={2}".format(event_key[0],
-                                                                                                    event_key[1],
-                                                                                                    self.env.now))
+                                #print("waiting event has been succeeded, part={0}, process={1}, time={2}".format(event_key[0],
+                                #                                                                    event_key[1],
+                                #                                                                    self.env.now))
                 else:
                     print('Impossible cus cannot move block with tp', part.name, 'from = {}, to = {}, road_size = {}'.format(current_process, next_process_name, road_size))
 
@@ -500,13 +501,13 @@ class Part:
         # if self.name == "A0001_E82S0" and next_stock == 'E4':
         #     print(0)
         next_stock = next_stock if next_stock is not None else 'Virtual'
-        print(self.name, 'At _find_stock /', 'Stock {0} in at {1}'.format(next_stock, self.env.now),
+        print(self.name, 'At _find_stock /', 'Stock {0} in at {1}'.format(next_stock, round(self.env.now, 2)),
               'area_used = {0} and preemptive_area = {1}'.format(self.stocks[next_stock].area_used,
                                                                  self.stocks[next_stock].preemptive_area))
 
 
         self.stocks[next_stock].preemptive_area += self.area
-        print(self.name, 'At _find_stock /', 'Stock {0} in at {1}, add preemptive area'.format(next_stock, self.env.now),
+        print(self.name, 'At _find_stock /', 'Stock {0} in at {1}, add preemptive area'.format(next_stock, round(self.env.now, 2)),
               'area_used = {0}, preemptive_area = {1}'.format(self.stocks[next_stock].area_used,
                                                               self.stocks[next_stock].preemptive_area))
         return next_stock
@@ -580,7 +581,7 @@ class Sink:
                     end_delay = list(self.parts[parent_block].assemble_delay.keys())
                     self.parts[parent_block].assemble_delay[end_delay[0]].succeed()
 
-            print("Ready to Assemble, parent block = {0} at {1}".format(parent_block, self.env.now))
+            print("Ready to Assemble, parent block = {0} at {1}".format(parent_block, round(self.env.now, 2)))
 
         self.parts_rec += 1
         self.last_arrival = self.env.now
@@ -658,6 +659,7 @@ class Process:
                 delaying_time = self.delay_time if type(self.delay_time) == float else self.delay_time()
                 yield self.env.timeout(delaying_time)
             part = yield self.buffer_to_machine.get()
+            print("{0} is in {1} at {2}".format(part.name, self.name, round(self.env.now, 2)))
             if self.in_process == 0:
                 self.start_time = self.env.now
             self.in_process += 1
@@ -775,6 +777,7 @@ class Machine:
                                             event="work_start")
 
                     self.working_start = self.env.now
+                    print("{1} starts its work at {1} in {2}".format(part.name, self.process_name, round(self.env.now, 2)))
                     yield self.env.timeout(proc_time)
 
                     ## working finish
@@ -783,12 +786,13 @@ class Machine:
                     self.total_working_time += self.env.now - self.working_start
                     self.broken = True
                     proc_time = 0.0
+                    print("{1} finishes its work at {1} in {2}".format(part.name, self.process_name, round(self.env.now, 2)))
 
                 except simpy.Interrupt:
                     self.broken = True
                     self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
                                         event="machine_broken")
-                    print('{0} is broken at '.format(self.name), self.env.now)
+                    print('{0} is broken at '.format(self.name), round(self.env.now, 2))
                     proc_time -= self.env.now - self.working_start
                     if self.MTTR is not None:
                         repair_time = self.MTTR if type(self.MTTR) == float else self.MTTR()
@@ -796,7 +800,7 @@ class Machine:
                         self.unbroken_start = self.env.now
                     self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
                                         event="machine_rerunning")
-                    print(self.name, 'is solved at ', self.env.now)
+                    print(self.name, 'is solved at ', round(self.env.now, 2))
                     self.broken = False
 
                     mttf_time = self.MTTF if type(self.MTTF) == float else self.MTTF()
@@ -868,11 +872,11 @@ class StockYard:
         temp['location'] = self.name
         part = block(temp['name'], temp['location'], temp['step'], temp['clone'], temp['area'])
         self.stock_yard.put([out_time, part])
-        print(part.name, 'At Stock Yard /', 'Stock {0} in at {1}'.format(self.name, self.env.now),
+        print(part.name, 'At Stock Yard /', 'Stock {0} in at {1}'.format(self.name, round(self.env.now, 2)),
               'area_used = {0} and preemptive_area = {1}'.format(self.area_used,
                                                                  self.preemptive_area))
         self.area_used += self.parts[part.name].area
-        print(part.name,'At Stock Yard /', 'Stock {0} in at {1}'.format(self.name, self.env.now),
+        print(part.name,'At Stock Yard /', 'Stock {0} in at {1}'.format(self.name, round(self.env.now, 2)),
               'add area_used, area_used = {0} and preemptive_area = {1}'.format(self.area_used,
                                                                  self.preemptive_area))
 
