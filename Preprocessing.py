@@ -51,13 +51,9 @@ def convert_process(present_process, block_code, converting, dock_mapping):
     elif present_process == '건조1부' or present_process == '건조3부' or present_process == '건조2부':
         if series[3] == 0:  # 한 자리수 호선
             dock_num = dock_mapping[int(series[4]) - 1]['도크']
-            if dock_num in [4, 5]:
-                dock_num = 3
             dock = '{0}도크'.format(dock_num)
         else:  # 두 자리수 호선
             dock_num = dock_mapping[int(series[-2:]) - 1]['도크']
-            if dock_num in [4, 5]:
-                dock_num = 3
             dock = '{0}도크'.format(dock_num)
         return dock
     else:
@@ -75,8 +71,7 @@ INPUT DATA
 '''
 
 
-def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock: str, path_inout: str,
-                                   path_converting: str, path_road: str, series: str, saving_path: str) -> object:
+def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock: str, path_converting: str, series: list, saving_path: str) -> object:
     activity_data_all = pd.read_excel(path_activity, engine='openpyxl')
 
     bom_data_all = pd.read_excel(path_bom, engine='openpyxl')
@@ -84,36 +79,47 @@ def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock:
     dock_mapping = pd.read_excel(path_dock)
     dock_mapping = dict(dock_mapping.transpose())
 
-    mapping_table = pd.read_excel(path_inout)
-    process_inout = {}
-    for i in range(len(mapping_table)):
-        temp = mapping_table.iloc[i]
-        process_inout[temp['LOC']] = [temp['IN'], temp['OUT']]
-
     with open(path_converting, 'r') as f:
         converting = json.load(f)
 
-    network = {}
-
-    from_to_matrix = pd.read_excel(path_road, index_col=0)
-    # Virtual Stockyard까지의 거리 추가 --> 거리 = 0 (가상의 공간이므로)
-    from_to_matrix.loc['Virtual'] = 0.0
-    from_to_matrix.loc['Source'] = 0.0
-    from_to_matrix.loc['Sink'] = 0.0
-    from_to_matrix['Virtual'] = 0.0
-    from_to_matrix['Source'] = 0.0
-    from_to_matrix['Sink'] = 0.0
-
-    network[12] = from_to_matrix
+    # network = {}
+    #
+    # ## from to matrix를 network(json)으로부터 가져오는 것부터
+    # from_to_matrix = pd.read_excel(path_road, index_col=0)
+    # # Virtual Stockyard까지의 거리 추가 --> 거리 = 0 (가상의 공간이므로)
+    # from_to_matrix.loc['Virtual'] = 0.0
+    # from_to_matrix.loc['Source'] = 0.0
+    # from_to_matrix.loc['Sink'] = 0.0
+    # from_to_matrix['Virtual'] = 0.0
+    # from_to_matrix['Source'] = 0.0
+    # from_to_matrix['Sink'] = 0.0
+    #
+    # network[12] = from_to_matrix
 
     if series == "all":
         target_series = list(np.unique(list(activity_data_all['호선'])))
     else:
-        target_series = series
+        target_series = ['A000{0}'.format(series_num) if series_num < 10 else 'A00{0}'.format(series_num) for series_num in series]
 
+    # filtering positive value at start_date and finish_date
+    activity_data_all = activity_data_all[(activity_data_all['시작일'] > 0) & (activity_data_all['종료일'] > 0)]
+    activity_data_all.loc[:, '시작일'] = pd.to_datetime(activity_data_all['시작일'], format='%Y%m%d')
+    activity_data_all.loc[:, '종료일'] = pd.to_datetime(activity_data_all['종료일'], format='%Y%m%d')
+    # find initial date
+    initial_date = None
+    for idx in range(len(target_series)):
+        temp_series = activity_data_all[activity_data_all['호선'] == target_series[idx]]
+        if idx == 0:
+            initial_date = temp_series['시작일'].min()
+        else:
+            initial_date = temp_series['시작일'].min() if min(temp_series['시작일']) < initial_date else initial_date
+
+
+    # *2. find initial date of start date
+    preproc = dict()
+    preproc['initial_date'] = initial_date.strftime('%Y-%m-%d')
     block_info = {}
-    for series_num in target_series:
-        series = 'A000{0}'.format(series_num) if series_num < 10 else 'A00{0}'.format(series_num)
+    for series in target_series:
         activity_data = activity_data_all[activity_data_all['호선'] == series]
         bom_data = bom_data_all[bom_data_all['호선'] == series]
 
@@ -130,8 +136,7 @@ def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock:
                                       (activity_data_all['공정공종'] != 'L4B') & (activity_data_all['공정공종'] != 'L4A') & \
                                       (activity_data_all['공정공종'] != 'LX3') & (activity_data_all['공정공종'] != 'JX3')]
 
-        # filtering positive value at start_date and finish_date
-        activity_data = activity_data[(activity_data['시작일'] > 0) & (activity_data['종료일'] > 0)]
+
 
         print("공정 골라내기 완료")
 
@@ -140,17 +145,13 @@ def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock:
         activity_data['작업부서'] = activity_data['작업부서'].apply(lambda x: x.replace(x, '외부') if x in out_of_the_yard else x)
 
         # reforming date to integer
-        # *1. string to datetime
-        activity_data.loc[:, '시작일'] = pd.to_datetime(activity_data['시작일'], format='%Y%m%d')
-        activity_data.loc[:, '종료일'] = pd.to_datetime(activity_data['종료일'], format='%Y%m%d')
 
-        # *2. find initial date of start date
-        initial_date = activity_data['시작일'].min()
 
         # *3. reform datetime to integer by subtracting
         activity_data.loc[:, '시작일'] = activity_data['시작일'].apply(lambda x: (x - initial_date).days)
         activity_data.loc[:, '종료일'] = activity_data['종료일'].apply(lambda x: (x - initial_date).days)
-
+        activity_data = activity_data.sort_values(by=['시작일'], ascending=True)
+        activity_data = activity_data.reset_index(drop=True)
         # making columns need to processing
         activity_data.loc[:, '호선'] = activity_data['호선'].apply(lambda x: str(x))
         activity_data.loc[:, '블록'] = activity_data['ACT_ID'].apply(lambda x: x[:5])
@@ -200,6 +201,7 @@ def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock:
         bom_data['중량'] = bom_data['중량'].replace(0.0, weight_avg)
 
         # recording block information into 'block_info' dictionary
+        block_list_for_source = copy.deepcopy(block_list)
         for block_code in block_list:
             if (block_code in bom_child) or (block_code in bom_parent):
                 block_info[block_code] = {}
@@ -301,28 +303,93 @@ def processing_with_activity_N_bom(path_activity: str, path_bom: str, path_dock:
                 else:
                     block_info[block_code]['parent_block'] = None
 
+                block_info[block_code]['source_location'] = None
                 # 2-2. grouping by parent code
                 if block_code in bom_parent:
                     bom_parent_data = bom_group_by_parent.get_group(block_code)
                     bom_parent_data = bom_parent_data.reset_index(drop=True)
 
                     child_list = []
+                    # child_last_process_weight = {}
                     for i in range(len(bom_parent_data)):
                         child = bom_parent_data['child code'][i]
                         if child in block_list:
                             child_list.append(child)
+                            # last_process = convert_process(list(block_group.get_group(child)['작업부서'])[-1], child,
+                            #                                converting=converting, dock_mapping=dock_mapping)
+                            # if last_process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장2부', '의장3부',
+                            #                         '도장1부', '도장2부', '발판지원부']:
+                            #     child_weight = list(bom_group_by_child.get_group(child)['중량'])[-1]
+                            #     child_size = list(bom_group_by_child.get_group(child)['size'])[-1]
+                            #     child_last_process_weight.append([last_process, child_weight, child_size])
+
                     if len(child_list) > 0:
                         block_info[block_code]['child_block'] = child_list
                     else:
                         block_info[block_code]['child_block'] = None
+                        block_list_for_source.remove(block_code)
+
+                    # if len(child_last_process_weight) > 0:
+                    #     child_last_process_weight = sorted(child_last_process_weight, key=lambda x: (x[1], x[2]))
+                    #     block_info[block_code]['source_location'] = child_last_process_weight[0][0]
+                    # if len(child_list) > 0 and len(child_last_process_weight) == 0:
+                    #     print(block_code)
+                    #     print(0)
                 else:
                     block_info[block_code]['child_block'] = None
             else:
                 continue
+        # determine source location
+        for parent_code in block_info.keys():
+            if parent_code[:5] == series:
+                child_list = block_info[parent_code]['child_block']
+                parent_block_grp = block_group.get_group(parent_code)
+                parent_first_process = list(parent_block_grp['작업부서'])[0]
+                if (child_list is not None) and (parent_first_process in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '도장1부', '도장2부', '발판지원부']):
+                    child_process_weight_dict = dict()
+                    for child_code in child_list:
+                        child_process = list(block_group.get_group(child_code)['작업부서'])
+                        child_weight = list(bom_group_by_child.get_group(child_code)['중량'])[-1]
+                        for i in range(len(child_process)):
+                            process = child_process[-(i+1)]
+                            if process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '도장1부',
+                                               '도장2부', '발판지원부']:
+                                if i not in child_process_weight_dict.keys():
+                                    child_process_weight_dict[i] = list()
+                                converted_process = convert_process(process, child_code, converting=converting,
+                                                                    dock_mapping=dock_mapping)
+                                child_process_weight_dict[i].append([converted_process, child_weight])
 
+                    # determine its source location
+                    if len(child_process_weight_dict) == 0:
+                        print(parent_code)  # 이럴 경우 하위의 하위까지 내려가서 찾는 거 만들기
+                        grandchild_list = list()
+                        for child in child_list:
+                            grandchild_list += block_info[child]['child_block']
+                        for grandchild in grandchild_list:
+                            grandchild_process = list(block_group.get_group(grandchild)['작업부서'])
+                            grandchild_weight = list(bom_group_by_child.get_group(grandchild)['중량'])[-1]
+                            for i in range(len(grandchild_process)):
+                                process = grandchild_process[-(i + 1)]
+                                if process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '도장1부',
+                                                   '도장2부', '발판지원부']:
+                                    if i not in child_process_weight_dict.keys():
+                                        child_process_weight_dict[i] = list()
+                                    converted_process = convert_process(process, grandchild, converting=converting,
+                                                                        dock_mapping=dock_mapping)
+                                    child_process_weight_dict[i].append([converted_process, grandchild_weight])
 
+                    if len(child_process_weight_dict) == 0:
+                        print(0)
+
+                    min_idx = min(child_process_weight_dict.keys())
+                    location_list = child_process_weight_dict[min_idx]
+                    location_list = sorted(location_list, key=lambda x: x[1], reverse=True)
+                    block_info[parent_code]['source_location'] = location_list[0][0]
+
+    preproc['block_info'] = block_info
     # Save data
     with open(saving_path + 'Layout_data.json', 'w') as f:
-        json.dump(block_info, f)
+        json.dump(preproc, f)
 
     return saving_path + 'Layout_data.json'
