@@ -5,6 +5,7 @@ from Sim_Kernel import *
 from Preprocessing import *
 from Postprocessing import *
 
+
 def read_process_info(path):
     process_info_data = pd.read_excel(path)
     process_info = {}
@@ -200,7 +201,7 @@ if __name__ == "__main__":
     with open(input_data['default_result'] + 'result_path.json', 'w') as f:
         json.dump(output_path, f)
     print("Finish")
-    post_processing(input_data['default_result'] + 'result_path.json')
+    # post_main(input_data['default_result'] + 'result_path.json')
     # with open(input_data['default_result'] + 'Post.bat', 'w') as f:
     #     go_to_venv = "cd " + "C:/Users/sohyon/source/repos/HiApplication-SNU/env_simulation" + ' \n'
     #     f.write(go_to_venv)

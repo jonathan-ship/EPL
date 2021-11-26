@@ -1,213 +1,216 @@
+import copy
 import json, math, os, sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib import font_manager, rc
+from xlsxwriter import Workbook
 
+# default - in Window
 font_name = font_manager.FontProperties(fname="C:\Windows\Fonts\H2GTRM.TTF").get_name()
+
+# At Apple Product
+# font_at_prof = '/Users/jonathan/Library/Fonts/NanumSquareB.ttf'
+# font_name = font_manager.FontProperties(fname=font_at_prof).get_name()
+
 rc('font', family=font_name)
 
 
-def tp_index(event_tracer, tp_info, result_path):  # get get tp moving distance and time each day
-    tp_time = [i for i in range(math.ceil(max(event_tracer['Time'])) + 1)]
-    tp_unloaded_distance = [0 for _ in range(len(tp_time))]  # 상차 이동 거리
-    tp_loaded_distance = tp_unloaded_distance[:]  # 하차 이동 거리
-    tp_used_time_loaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (상차)
-    tp_used_time_unloaded = tp_unloaded_distance[:]  # 날짜 별 사용 시간 (하차)
-    for tp in tp_info.keys():
-        each_tp = tp_info[tp]
-        ## loaded
-        loaded_time = each_tp['loaded']['moving_time']
-        for i in range(len(loaded_time)):
-            start_time = int(round(loaded_time[i][0]))
-            finish_time = int(round(loaded_time[i][1]))
-            if start_time == finish_time:
-                tp_loaded_distance[start_time] += each_tp['loaded']['moving_distance'][i]
-                tp_used_time_loaded[start_time] += loaded_time[i][1] - loaded_time[i][0]
-            else:  # 시간 비례하여 각 날짜에 포함
-                day_1 = finish_time - loaded_time[i][0]  # 첫째날에 이동한 총 시간
-                tp_loaded_distance[start_time] += day_1 * 3 * 1000 * 24
-                tp_used_time_loaded[start_time] += day_1
-                day_2 = loaded_time[i][1] - finish_time  # 둘째날에 이동한 총 시간
-                tp_loaded_distance[finish_time] += day_2 * 3 * 1000 * 24
-                tp_used_time_loaded[finish_time] += day_2
+def get_TP_information(tp_df):
+    tp_info = dict()
+    for i in range(len(tp_df)):
+        temp = tp_df.iloc[i]
+        yard = temp['운영구역'][0]
+        if yard in ["1", "2"]:
+            capacity = temp['최대 적재가능 블록중량(톤)']
+            yard = int(yard)
+            if yard not in tp_info.keys():
+                tp_info[yard] = dict()
 
-        ## unloaded
-        unloaded_time = each_tp['unloaded']['moving_time']
-        for i in range(len(unloaded_time)):
-            start_time = int(round(unloaded_time[i][0]))
-            finish_time = int(round(unloaded_time[i][1]))
-            if start_time == finish_time:
-                tp_unloaded_distance[start_time] += each_tp['unloaded']['moving_distance'][i]
-                tp_used_time_unloaded[start_time] += unloaded_time[i][1] - unloaded_time[i][0]
-            else:  # 시간 비례하여 각 날짜에 포함
-                day_1 = finish_time - unloaded_time[i][0]  # 첫째날에 이동한 총 시간
-                tp_unloaded_distance[start_time] += day_1 * 10 * 1000 * 24
-                tp_used_time_loaded[start_time] += day_1
-                day_2 = unloaded_time[i][1] - finish_time  # 둘째날에 이동한 총 시간
-                tp_unloaded_distance[finish_time] += day_2 * 10 * 1000 * 24
-                tp_used_time_loaded[finish_time] += day_2
+            if capacity not in tp_info[yard].keys():
+                tp_info[yard][capacity] = 0
 
-    ## ax1: unloaded time / ax2: loaded_time
+            tp_info[yard][capacity] += 4 * 8 * 1000
+
+    return tp_info
+
+
+def road_usage(event_tracer, network_road, inout, result_path):
+    '''
+    unload, 호출된 TP가 호출한 공장까지 가는 이벤트 : tp_unloaded_start
+    load, tp가 블록이랑 같이 이동하는 이벤트 : tp_loaded_start
+    '''
+
+    # Select Target Events]
+    event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
+    event_tracer_road = event_tracer_road.reset_index(drop=True)
+
+    # Variables
+    road_usage_dict = dict()
+
+    for i in range(len(event_tracer_road)):
+        temp = event_tracer_road.iloc[i]
+
+        from_process = temp["From"]
+        to_process = temp["To"]
+        used_road = network_road[inout[from_process][1]][inout[to_process][0]]
+
+        for road_id in used_road:
+            object_id = road_id[0]
+            if object_id not in road_usage_dict.keys():
+                road_usage_dict[object_id] = 0
+            # 사용 횟수
+            road_usage_dict[object_id] += 1
+
+    road_df = pd.DataFrame(road_usage_dict, index=["Times"])
+    road_df = road_df.transpose()
+    road_df.to_excel(result_path + "/Road Usage.xlsx")
+
+
+def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp moving distance and time each day
+    # Select Target Events
+    event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
+    event_tracer_road.loc[:, 'Date'] = pd.to_datetime(event_tracer_road['Date'], format='%Y-%m-%d')
+
+    # event_tracer_road = event_tracer_road.reset_index(drop=True)
+    time_list = list(np.unique(list(event_tracer_road['Date'])))
+    daily_event_grp = event_tracer_road.groupby(event_tracer_road['Date'])
+
+    capacity_1 = list(tp_info[1].keys())
+    capacity_1.sort()
+    capacity_2 = list(tp_info[2].keys())
+    capacity_2.sort()
+    capacity_dict = {1: capacity_1, 2: capacity_2}
+    tp_output = {1: {time: {capacity: 0 for capacity in capacity_1} for time in time_list},
+                 2: {time: {capacity: 0 for capacity in capacity_2} for time in time_list}}
+    date_time_list = list()
+    for date_time in time_list:
+        date_time_list.append(date_time.date())
+        daily_event = daily_event_grp.get_group(date_time)
+        daily_event = daily_event.reset_index(drop=True)
+        for idx in range(len(daily_event)):
+            temp = daily_event.iloc[idx]
+            series = temp['Part'][:5]
+            yard = 1 if project_dock[series] in [1, 2, 3] else 2
+
+            load = temp['Load'] if temp['Load'] <= max(tp_info[yard].keys()) else max(tp_info[yard].keys())
+            available_tp = min(list(filter(lambda x: x >= load, tp_info[yard].keys())))
+            tp_output[yard][date_time][available_tp] += temp['Distance']
+
+
+        tp_output[1][date_time] = {
+            "{0}_1".format(capacity): round(tp_output[1][date_time][capacity] * 100 / tp_info[1][capacity], 1) for capacity
+            in capacity_dict[1]}
+        tp_output[2][date_time] = {
+            "{0}_2".format(capacity): round(tp_output[2][date_time][capacity] * 100 / tp_info[2][capacity], 1) for capacity
+            in capacity_dict[2]}
+
+    yard_1 = pd.DataFrame.from_dict(tp_output[1])
+    yard_1 = yard_1.transpose()
+    #yard_1['Date'] = date_time_list
+    #yard_1 = yard_1.set_index("Date", drop=True)
+    # yard_1.to_excel(result_path + '/1 Yard TP.xlsx')
+
+    yard_2 = pd.DataFrame.from_dict(tp_output[2])
+    yard_2 = yard_2.transpose()
+
+    yard_2['Date'] = date_time_list
+    #yard_2 = yard_2.set_index("Date", drop=True)
+    # yard_2.to_excel(result_path + '/2 Yard TP.xlsx')
+    yard_tp = pd.concat([yard_1, yard_2], 1)
+    yard_tp = yard_tp.reset_index(drop=True)
+    tp_num_list = list()
+    tp_capa_list = list(yard_tp)
+    for tp_capa in tp_capa_list:
+        if tp_capa != "Date":
+            temp = tp_capa.split("_")
+            capa = int(temp[0])
+            yard = int(temp[1])
+            tp_num = int((tp_info[yard][capa]) / (8 * 4 * 1000))
+            tp_num_list.append(tp_num)
+    tp_num_list.append("Number")
+    num_df = pd.DataFrame(columns=tp_capa_list)
+    num_df.loc[0] = tp_num_list
+    yard_tp = pd.concat([num_df, yard_tp], 0)
+    yard_tp = yard_tp.set_index("Date", drop=True)
+    yard_tp.to_excel(result_path + "Transporter.xlsx")
+
+
+def calculate_stock_occupied_area(result_path, event_tracer, factory_info):
+    if not os.path.exists(result_path + "/Load"):
+        os.makedirs(result_path + "/Load")
+    event_tracer = event_tracer[
+        (event_tracer['Event'] == "Process_entered") | (event_tracer['Event'] == "part_transferred_to_out_buffer") | (
+                    event_tracer['Event'] == "Stock_in") | (event_tracer['Event'] == "Stock out")]
+    factory_type = list(np.unique(list(event_tracer['Process Type'])))
+    event_tracer_grp = event_tracer.groupby(event_tracer['Process Type'])
+    for types in factory_type:
+        factory_grp = event_tracer_grp.get_group(types)
+        factories = list(np.unique(list(factory_grp['Process'])))
+        each_factory_group = factory_grp.groupby(factory_grp['Process'])
+
+        writer = pd.ExcelWriter(result_path + "/Load/{0}.xlsx".format(types), engine='xlsxwriter')
+
+        for factory in factories:
+            factory_event = each_factory_group.get_group(factory)
+            factory_event = factory_event.reset_index(drop=True)
+            time = list()
+            load = list()
+            capacity_ratio = list()
+            overload = list()
+            for i in range(len(factory_event)):
+                temp = factory_event.iloc[i]
+                load.append(temp['Load'])
+                time.append(temp['Date'].date())
+                occupied_ratio = int(temp['Load'] / factory_info[factory] * 100) if factory not in ["Stock", "Shelter", "Painting"] else None
+                capacity_ratio.append(occupied_ratio)
+                overload_ratio = occupied_ratio if (factory not in ["Stock", "Shelter", "Painting"]) and (occupied_ratio >= 100) else None
+                overload.append(overload_ratio)
+
+            factory_df = pd.DataFrame([], columns=[str(factory_info[factory]), "Load", "Ratio[%]", "OverLoad[%]"])
+            factory_df[str(factory_info[factory])] = time
+            factory_df["Load"] = load
+            factory_df["Ratio[%]"] = capacity_ratio
+            factory_df["OverLoad[%]"] = overload
+
+            factory_df.to_excel(writer, sheet_name=factory, index=False)
+        writer.save()
+
+
+def calculate_block_moving_distance(event_tracer, block_info, result_path):
+    block_list = list(np.unique(list(event_tracer['Part'])))
+    block_group = event_tracer.groupby(event_tracer['Part'])
+    block_code_list = list()
+    distance_list = list()
+    for block_code in block_list:
+        if block_code in block_info.keys():
+            block_event = block_group.get_group(block_code)
+            moving_event = block_event[block_event['Resource']=="Transporter"]
+            if len(moving_event) > 0:
+                moving_distance = list(moving_event['Distance'])
+                moving_distance = [i for i in moving_distance if i != 0]
+                if len(moving_distance) > 0:
+                    avg_distance = np.mean(moving_distance)
+                    distance_list.append(avg_distance)
+                    block_code_list.append(block_code)
+            # else:
+
+
     fig, ax = plt.subplots()
-    tp_used_time_loaded_hour = list(map(lambda x: x * 24, tp_used_time_loaded))
-    tp_used_time_unloaded_hour = list(map(lambda x: x * 24, tp_used_time_unloaded))
-    unloaded_line_time = ax.plot(tp_time, tp_used_time_unloaded_hour, color="blue", marker=".", label="Unloaded")
-    loaded_bar_time = ax.bar(tp_time, tp_used_time_loaded_hour, color="red", width=5, label="Loaded")
-    ax.set_title("T/P time", fontsize=13, fontweight="bold")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Used Time [hr]")
-    fig.legend(loc=1, bbox_to_anchor=(1, 1), bbox_transform=ax.transAxes, shadow=True, fancybox=True)
-    filepath = result_path + '/TP_time.png'
-    plt.savefig(filepath, dpi=600, transparent=True)
-    # plt.show()
+    bins = np.linspace(0, max(distance_list), 50)
+    ax.hist(distance_list, density=False, histtype='stepfilled', alpha=0.2, bins=bins)
+    plt.savefig(result_path+'/Block Moving Distance.png', dpi=600)
 
-    fig, ax = plt.subplots()
-    tp_used_distance_loaded_km = list(map(lambda x: x * 0.001, tp_loaded_distance))
-    tp_used_distance_unloaded_km = list(map(lambda x: x * 0.001, tp_unloaded_distance))
-    unloaded_line_distance = ax.plot(tp_time, tp_used_distance_unloaded_km, color="blue", marker=".", label="Unloaded")
-    loaded_bar_distance = ax.bar(tp_time, tp_used_distance_loaded_km, color="red", width=5, label="Loaded")
-    ax.set_title("T/P Distance", fontsize=13, fontweight="bold")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Distance [km]")
-    fig.legend(loc=1, bbox_to_anchor=(1, 1), bbox_transform=ax.transAxes, shadow=True, fancybox=True)
-    filepath = result_path + '/TP_distance.png'
-    plt.savefig(filepath, dpi=600, transparent=True)
-    # plt.show()
+    distance_df = pd.DataFrame(columns=["Block", "Avg.Distance"])
+    distance_df["Block"] = block_code_list
+    distance_df["Avg.Distance"] = distance_list
+    distance_df.to_excel(result_path + "/Block Moving Distance.xlsx", index=False)
 
 
-def calculate_stock_occupied_area(result_path, event_tracer, input_data, stock_capacity):
-    save_path_stock = result_path + '/Stock'
-    if not os.path.exists(save_path_stock):
-        os.makedirs(save_path_stock)
-
-    stock_event = event_tracer[event_tracer['Process_Type'] == 'Stock']
-    stock_list = list(np.unique(list(stock_event['Process'].dropna())))
-
-    if input_data['stock_virtual']:
-        stock_list.append("Stock")
-        stock_capacity["Stock"] = float("inf")
-
-    for stock in stock_list:
-        each_stock_event = stock_event[stock_event['Process'] == stock]
-        stock_area = stock_capacity[stock]
-        event_area = list(each_stock_event['Area'])
-        if len(event_area) > 0:
-            event_time = list(each_stock_event['Time'])
-            fig, ax = plt.subplots()
-            if stock == 'Stock':
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Area")
-                ax.set_ylim([0, max(event_area) * 1.2])
-                max_area_unit = math.ceil(max(event_area) / 10)
-                area_digit_num = len(str(max_area_unit)) - 1
-                area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_digit))
-            else:
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Ratio")
-                ax.set_ylim([0, stock_area * 1.05])
-                area_unit = math.ceil(stock_area / 10)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
-
-            ax.set_title("{0} occupied area".format(stock), fontsize=13, fontweight="bold")
-            ax.set_xlabel("Time")
-
-            filepath = save_path_stock + '/{0}.png'.format(stock)
-            plt.savefig(filepath, dpi=600, transparent=True)
-            # plt.show()
-            print("### {0} ###".format(stock))
-
-
-def calculate_painting_occupied_area(result_path, event_tracer, input_data, process_capacity):
-    save_path_painting = result_path + '/Painting'
-    if not os.path.exists(save_path_painting):
-        os.makedirs(save_path_painting)
-
-    painting_event = event_tracer[event_tracer['Process_Type'] == 'Painting']
-    painting_list = list(np.unique(list(painting_event['Process'].dropna())))
-
-    if input_data['painting_virtual']:
-        painting_list.append("Painting")
-        process_capacity["Painting"] = float("inf")
-
-    for painting in painting_list:
-        each_painting_event = painting_event[painting_event['Process'] == painting]
-        painting_area = process_capacity[painting]
-        event_area = list(each_painting_event['Area'])
-        if len(event_area) > 0:
-            event_time = list(each_painting_event['Time'])
-            fig, ax = plt.subplots()
-            if painting == 'Painting':
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Area")
-                ax.set_ylim([0, max(event_area) * 1.2])
-                max_area_unit = math.ceil(max(event_area) / 10)
-                area_digit_num = len(str(max_area_unit)) - 1
-                area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_digit))
-            else:
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Ratio")
-                ax.set_ylim([0, painting_area * 1.05])
-                area_unit = math.ceil(painting_area / 10)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
-
-            ax.set_title("{0} occupied area".format(painting), fontsize=13, fontweight="bold")
-            ax.set_xlabel("Time")
-
-            filepath = save_path_painting + '/{0}.png'.format(painting)
-            plt.savefig(filepath, dpi=600, transparent=True)
-            # plt.show()
-            print("### {0} ###".format(painting))
-
-
-def calculate_shelter_occupied_area(result_path, event_tracer, input_data, process_capacity):
-    save_path_shelter = result_path + '/Shelter'
-    if not os.path.exists(save_path_shelter):
-        os.makedirs(save_path_shelter)
-
-    shelter_event = event_tracer[event_tracer['Process_Type'] == 'Shelter']
-    shelter_list = list(np.unique(list(shelter_event['Process'].dropna())))
-
-    if input_data['shelter_virtual']:
-        shelter_list.append("Shelter")
-        process_capacity["Shelter"] = float("inf")
-
-    for shelter in shelter_list:
-        each_shelter_event = shelter_event[shelter_event['Process'] == shelter]
-        shelter_area = process_capacity[shelter]
-        event_area = list(each_shelter_event['Area'])
-        if len(event_area) > 0:
-            event_time = list(each_shelter_event['Time'])
-            fig, ax = plt.subplots()
-            if shelter == 'Shelter':
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Area")
-                ax.set_ylim([0, max(event_area) * 1.2])
-                max_area_unit = math.ceil(max(event_area) / 10)
-                area_digit_num = len(str(max_area_unit)) - 1
-                area_digit = math.ceil(max_area_unit / math.pow(10, area_digit_num)) * math.pow(10, area_digit_num)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_digit))
-            else:
-                line = ax.plot(event_time, event_area, color="blue", marker="o")
-                ax.set_ylabel("Ratio")
-                ax.set_ylim([0, shelter_area * 1.05])
-                area_unit = math.ceil(shelter_area / 10)
-                ax.yaxis.set_major_locator(ticker.MultipleLocator(area_unit))
-
-            ax.set_title("{0} occupied area".format(shelter), fontsize=13, fontweight="bold")
-            ax.set_xlabel("Time")
-
-            filepath = save_path_shelter + '/{0}.png'.format(shelter)
-            plt.savefig(filepath, dpi=600, transparent=True)
-            # plt.show()
-            print("### {0} ###".format(shelter))
-
-
-def post_main(result_path):
-    with open(result_path, 'r') as f:
+def post_processing(json_path):
+    #with open(sys.argv[1], 'r') as f:
+    with open(json_path, 'r') as f:
         result_path = json.load(f)
 
     event_tracer = pd.read_csv(result_path['event_tracer'])
@@ -215,21 +218,48 @@ def post_main(result_path):
     with open(result_path['input_path'], 'r') as f:
         input_data = json.load(f)
 
-    with open(result_path['tp_info'], 'r') as f:
-        tp_info = json.load(f)
+    with open(input_data['default_input'] + 'network_edge.json', 'r') as f:
+        network_road = json.load(f)
 
-    # parts = list(np.unique(list(self.event_tracer['Part'].dropna())))
 
-    process_capacity = pd.read_excel(input_data['path_process_area'])
-    process_capacity = {process_capacity.iloc[i]['name']: process_capacity.iloc[i]['area'] for i in
-                        range(len(process_capacity))}
+    preproc_data_path = input_data['default_input'] + 'Layout_data.json'
+    with open(preproc_data_path, 'r') as f:
+        preproc_data = json.load(f)
 
-    stock_capacity = pd.read_excel(input_data['path_stock_area'])
-    stock_capacity = {stock_capacity.iloc[i]['name']: stock_capacity.iloc[i]['area'] for i in
-                      range(len(stock_capacity))}
+    tp_df = pd.read_excel(input_data['path_transporter'])
 
-    tp_index(event_tracer, tp_info, input_data['default_result'])
-    calculate_stock_occupied_area(input_data['default_result'], event_tracer, input_data, stock_capacity)
-    calculate_painting_occupied_area(input_data['default_result'], event_tracer, input_data, process_capacity)
-    calculate_shelter_occupied_area(input_data['default_result'], event_tracer, input_data, process_capacity)
+    dock_data = pd.read_excel(input_data['path_dock_series_data'])
+    dock = {dock_data.iloc[i]['호선']: dock_data.iloc[i]['도크'] for i in range(len(dock_data))}
 
+    start_date_time = pd.to_datetime(preproc_data['simulation_initial_date'], format='%Y-%m-%d')
+    finish_date_time = pd.to_datetime(preproc_data['simulation_finish_date'], format='%Y-%m-%d')
+    post_range_days = (finish_date_time - start_date_time).days + 1
+
+    event_tracer.loc[:, 'Date'] = pd.to_datetime(event_tracer['Date'], format='%Y-%m-%d')
+    #event_tracer = event_tracer[(event_tracer['Date'] >= start_date_time) & (event_tracer['Date'] <= finish_date_time)]
+    block_info = preproc_data['block_info']
+
+    # 1. Road
+    road_usage(event_tracer, network_road, result_path['inout'], input_data['default_result'],)
+
+    #
+    # 2. Transporter
+    tp_info = get_TP_information(tp_df)
+    tp_index(event_tracer, tp_info, dock, input_data['default_result'])
+
+    # 3. Block Moving Distance
+    calculate_block_moving_distance(event_tracer, block_info, input_data['default_result'])
+
+    # 4. Occupied Area
+    factory_info = pd.read_excel(input_data['path_process_info'])
+    factory_dict = dict()
+    for i in range(len(factory_info)):
+        temp = factory_info.iloc[i]
+        factory_dict[temp['name']] = temp['Capacity']
+    factory_dict['Stock'] = float("inf")
+    factory_dict["Painting"] = float("inf")
+    factory_dict["Shelter"] = float("inf")
+    calculate_stock_occupied_area(input_data['default_result'], event_tracer, factory_dict)
+
+if __name__ == "__main__":
+    post_processing('./Case 1/Result/result_path.json')
