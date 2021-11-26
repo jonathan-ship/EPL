@@ -1,10 +1,9 @@
 import simpy, time, sys
 
 from network import *
-from Sim_Kernel import *
+from Sim_Kernel_Case_2 import *
 from Preprocessing import *
 from Postprocessing import *
-
 
 def read_process_info(path):
     process_info_data = pd.read_excel(path)
@@ -131,7 +130,7 @@ if __name__ == "__main__":
     start = time.time()
     # print(sys.argv[1])
     # 1. read input data
-    with open('./Test/input_data.json', 'r') as f:
+    with open('./Case 2/input_data.json', 'r') as f:
         input_data = json.load(f)
     # with open(sys.argv[1], 'r') as f:
     #     input_data = json.load(f)
@@ -194,14 +193,14 @@ if __name__ == "__main__":
     print("number of completed = ", monitor.completed, processes['Sink'].parts_rec)
 
     output_path = dict()
-    output_path['input_path'] = './Test/input_data.json'
+    output_path['input_path'] = './Case 2/input_data.json'
     output_path['event_tracer'] = path_event_tracer
     output_path['inout'] = inout
 
     with open(input_data['default_result'] + 'result_path.json', 'w') as f:
         json.dump(output_path, f)
     print("Finish")
-    # post_processing(input_data['default_result'] + 'result_path.json')
+    post_processing(input_data['default_result'] + 'result_path.json')
     # with open(input_data['default_result'] + 'Post.bat', 'w') as f:
     #     go_to_venv = "cd " + "C:/Users/sohyon/source/repos/HiApplication-SNU/env_simulation" + ' \n'
     #     f.write(go_to_venv)
