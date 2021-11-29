@@ -75,7 +75,7 @@ Modeling
 
 
 def modeling_parts(environment, data, process_dict, monitor_class, distance_matrix=None,
-                   stock_dict=None, inout=None, convert_dict=None, dock_dict=None):
+                   stock_dict=None, inout=None, convert_dict=None, dock_dict=None, lag_time=2):
     part_dict = dict()
     blocks = {'Created Part': 0}
     for part in data:
@@ -88,13 +88,13 @@ def modeling_parts(environment, data, process_dict, monitor_class, distance_matr
                                resource=None, network=distance_matrix, block=block, blocks=blocks,
                                child=part_data['child_block'], parent=part_data['parent_block'], stocks=stock_dict,
                                Inout=inout, convert_to_process=convert_dict, dock=dock_dict[series],
-                               source_location=part_data['source_location'])
+                               source_location=part_data['source_location'], stock_lag=lag_time)
 
     return part_dict
 
 
 def modeling_processes(process_dict, stock_dict, process_info, environment, parts, monitor_class, machine_num,
-                       convert_process, network, inout):
+                       convert_process, network, inout, lag_time):
     # 1. Stockyard
     stockyard_info = process_info['Stockyard']
     for stock in stockyard_info.keys():
@@ -123,7 +123,8 @@ def modeling_processes(process_dict, stock_dict, process_info, environment, part
                                         capacity=factory_info[factory]['capacity'],
                                         convert_dict=convert_process, unit=factory_info[factory]['unit'],
                                         process_type="Factory")
-    process_dict['Sink'] = Sink(environment, process_dict, parts, monitor_class, network, stock_dict, inout, convert_process)
+    process_dict['Sink'] = Sink(environment, process_dict, parts, monitor_class, network, stock_dict, inout,
+                                convert_process, lag_time)
     return process_dict, stock_dict
 
 
@@ -131,10 +132,10 @@ if __name__ == "__main__":
     start = time.time()
     # print(sys.argv[1])
     # 1. read input data
-    with open('./Test/input_data.json', 'r') as f:
+    #with open('./Case 3/input_data.json', 'r') as f:
+    #    input_data = json.load(f)
+    with open(sys.argv[1], 'r') as f:
         input_data = json.load(f)
-    # with open(sys.argv[1], 'r') as f:
-    #     input_data = json.load(f)
 
     process_info, inout = read_process_info(input_data['path_process_info'])
     converting = read_converting(input_data['path_converting_data'])
@@ -147,11 +148,11 @@ if __name__ == "__main__":
         print("Finish data loading at ", time.time() - start)
     else:
         print("Start combining Activity and BOM data at ", time.time() - start)
-        data_path = processing_with_activity_N_bom(input_data, dock, converting)
+        processing_with_activity_N_bom(input_data, dock, converting)
 
         print("Finish data preprocessing at ", time.time() - start)
 
-        with open(data_path, 'r') as f:
+        with open(input_data['path_preprocess'], 'r') as f:
             sim_data = json.load(f)
         print("Finish data loading at ", time.time() - start)
 
@@ -177,11 +178,13 @@ if __name__ == "__main__":
 
     # 2. Block
     parts = modeling_parts(env, block_data, processes, monitor, distance_matrix=network_distance,
-                           stock_dict=stock_yard, inout=inout, convert_dict=converting, dock_dict=dock)
+                           stock_dict=stock_yard, inout=inout, convert_dict=converting, dock_dict=dock,
+                           lag_time=input_data['parameter_stock_lag_time'])
 
     # 3. Process and StockYard
     processes, stock_yard = modeling_processes(processes, stock_yard, process_info, env, parts, monitor,
-                                               input_data['machine_num'], converting, network_distance, inout)
+                                               input_data['machine_num'], converting, network_distance, inout,
+                                               lag_time=input_data['parameter_stock_lag_time'])
 
     start_sim = time.time()
     env.run()
@@ -191,25 +194,23 @@ if __name__ == "__main__":
     # path_event_tracer, path_tp_info, path_road_info = monitor.save_information()
     path_event_tracer = monitor.save_information()
     print("number of part created = ", monitor.created)
-    print("number of completed = ", monitor.completed, processes['Sink'].parts_rec)
+    print("number of completed = ", monitor.completed)
 
+    # if not os.path.exists(input_data['default_result'] + 'Factory_Block_Load/'):
+    #     os.makedirs(input_data['default_result'] + 'Factory_Block_Load/')
+    #
+    # for process in processes:
+    #     if process != "Sink":
+    #         temp_df = pd.DataFrame()
+    #         temp_df['Time'] = processes[process].event_time
+    #         temp_df['Block Area'] = processes[process].event_area
+    #         temp_df.to_excel(input_data['default_result'] + 'Factory_Block_Load/' + '{0}.xlsx'.format(process))
     output_path = dict()
-    output_path['input_path'] = './Test/input_data.json'
+    output_path['input_path'] = './Case 3/input_data.json'
     output_path['event_tracer'] = path_event_tracer
     output_path['inout'] = inout
 
     with open(input_data['default_result'] + 'result_path.json', 'w') as f:
         json.dump(output_path, f)
     print("Finish")
-    # post_processing(input_data['default_result'] + 'result_path.json')
-    # with open(input_data['default_result'] + 'Post.bat', 'w') as f:
-    #     go_to_venv = "cd " + "C:/Users/sohyon/source/repos/HiApplication-SNU/env_simulation" + ' \n'
-    #     f.write(go_to_venv)
-    #     execute_post = "call " + "python Postprocessing.py " + "C:/Users/sohyon/source/repos/HiApplication-SNU/env_simulation" + input_data['default_result'][1:] + "Post.bat" + "\n"
-    #     f.write(execute_post)
-    # with open(input_data['default_result'] + 'post_processing.bat', 'w') as f:
-    #     f.write("call conda env list \n")
-    #     f.write("call conda activate env_sim \n")
-    #     f.write("cd C:/Users/sohyon/PycharmProjects/Simulation_Module \n")
-    #     f.write("call python Postprocessing.py {0} \n".format(input_data['default_result'] + 'result_path.json'))
-    #     f.write("\npause")
+    post_processing(input_data['default_result'] + 'result_path.json')

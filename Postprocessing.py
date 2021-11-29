@@ -100,7 +100,7 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
 
 
         tp_output[1][date_time] = {
-            "{0}_1".format(capacity): round(tp_output[1][date_time][capacity] * 100 / tp_info[1][capacity], 1) for capacity
+            "{0}_1".format(capacity): round(tp_output[1][date_time][capacity] / tp_info[1][capacity], 1) for capacity
             in capacity_dict[1]}
         tp_output[2][date_time] = {
             "{0}_2".format(capacity): round(tp_output[2][date_time][capacity] * 100 / tp_info[2][capacity], 1) for capacity
@@ -108,16 +108,11 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
 
     yard_1 = pd.DataFrame.from_dict(tp_output[1])
     yard_1 = yard_1.transpose()
-    #yard_1['Date'] = date_time_list
-    #yard_1 = yard_1.set_index("Date", drop=True)
-    # yard_1.to_excel(result_path + '/1 Yard TP.xlsx')
 
     yard_2 = pd.DataFrame.from_dict(tp_output[2])
     yard_2 = yard_2.transpose()
-
     yard_2['Date'] = date_time_list
-    #yard_2 = yard_2.set_index("Date", drop=True)
-    # yard_2.to_excel(result_path + '/2 Yard TP.xlsx')
+
     yard_tp = pd.concat([yard_1, yard_2], 1)
     yard_tp = yard_tp.reset_index(drop=True)
     tp_num_list = list()
@@ -137,7 +132,7 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
     yard_tp.to_excel(result_path + "Transporter.xlsx")
 
 
-def calculate_stock_occupied_area(result_path, event_tracer, factory_info):
+def calculate_occupied_area(result_path, event_tracer, factory_info):
     if not os.path.exists(result_path + "/Load"):
         os.makedirs(result_path + "/Load")
     event_tracer = event_tracer[
@@ -194,8 +189,6 @@ def calculate_block_moving_distance(event_tracer, block_info, result_path):
                     avg_distance = np.mean(moving_distance)
                     distance_list.append(avg_distance)
                     block_code_list.append(block_code)
-            # else:
-
 
     fig, ax = plt.subplots()
     bins = np.linspace(0, max(distance_list), 50)
@@ -206,6 +199,56 @@ def calculate_block_moving_distance(event_tracer, block_info, result_path):
     distance_df["Block"] = block_code_list
     distance_df["Avg.Distance"] = distance_list
     distance_df.to_excel(result_path + "/Block Moving Distance.xlsx", index=False)
+
+
+def road_warning(event_tracer, network_road, inout, block_info, warning_diff, result_path):
+    # Select Target Events]
+    event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
+    event_tracer_road = event_tracer_road.reset_index(drop=True)
+
+    # Variables
+    date_list = list()
+    block_list = list()
+    block_size_list = list()
+    road_id_list = list()
+    road_size_list = list()
+    size_diff_list = list()
+    from_factory_list = list()
+    to_factory_list = list()
+
+    for i in range(len(event_tracer_road)):
+        temp = event_tracer_road.iloc[i]
+
+        block_code = temp['Part']
+        from_process = temp["From"]
+        to_process = temp["To"]
+        used_road = network_road[inout[from_process][1]][inout[to_process][0]]
+
+        for road_id in used_road:
+            object_id = road_id[0]
+            road_size = road_id[1]
+            block_size = block_info[block_code]['size']
+            if (block_size - road_size) >= warning_diff:
+                date_list.append(temp['Date'].date())
+                block_list.append(temp['Part'])
+                block_size_list.append(block_size)
+                road_id_list.append(object_id)
+                road_size_list.append(road_size)
+                size_diff_list.append(block_size-road_size)
+                from_factory_list.append(from_process)
+                to_factory_list.append(to_process)
+
+    road_warning_df = pd.DataFrame()
+    road_warning_df['Date'] = date_list
+    road_warning_df['Block'] = block_list
+    road_warning_df['Road ID'] = road_id_list
+    road_warning_df['Block Size'] = block_size_list
+    road_warning_df['Road Size'] = road_size_list
+    road_warning_df['Difference'] = size_diff_list
+    road_warning_df['From'] = from_factory_list
+    road_warning_df['To'] = to_factory_list
+
+    road_warning_df.to_excel(result_path + "Road Warning.xlsx", index=False)
 
 
 def post_processing(json_path):
@@ -221,8 +264,7 @@ def post_processing(json_path):
     with open(input_data['default_input'] + 'network_edge.json', 'r') as f:
         network_road = json.load(f)
 
-
-    preproc_data_path = input_data['default_input'] + 'Layout_data.json'
+    preproc_data_path = input_data['path_preprocess']
     with open(preproc_data_path, 'r') as f:
         preproc_data = json.load(f)
 
@@ -240,9 +282,8 @@ def post_processing(json_path):
     block_info = preproc_data['block_info']
 
     # 1. Road
-    road_usage(event_tracer, network_road, result_path['inout'], input_data['default_result'],)
+    road_usage(event_tracer, network_road, result_path['inout'], input_data['default_result'])
 
-    #
     # 2. Transporter
     tp_info = get_TP_information(tp_df)
     tp_index(event_tracer, tp_info, dock, input_data['default_result'])
@@ -259,7 +300,7 @@ def post_processing(json_path):
     factory_dict['Stock'] = float("inf")
     factory_dict["Painting"] = float("inf")
     factory_dict["Shelter"] = float("inf")
-    calculate_stock_occupied_area(input_data['default_result'], event_tracer, factory_dict)
+    calculate_occupied_area(input_data['default_result'], event_tracer, factory_dict)
 
-if __name__ == "__main__":
-    post_processing('./Case 1/Result/result_path.json')
+    road_warning(event_tracer, network_road, result_path['inout'], block_info, input_data['parameter_road_warning'],
+                 input_data['default_result'])

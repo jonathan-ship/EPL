@@ -44,7 +44,7 @@ class Block:
 class Part:
     def __init__(self, name, env, process_data, processes, monitor, block, blocks=None, resource=None,
                  network=None, child=None, parent=None, stocks=None, Inout=None, convert_to_process=None,
-                 dock=None, source_location=None, size=None):
+                 dock=None, source_location=None, size=None, stock_lag=2):
         self.name = name
         self.env = env
         self.block = block  # class로 모델링한 블록
@@ -67,6 +67,7 @@ class Part:
         self.source_location = source_location
         self.block.location = self.source_location
         self.size = size
+        self.stock_lag = stock_lag
 
         self.in_child = {'Parent': list(), 'Stock': list()}
         self.part_store = simpy.Store(env, capacity=1)
@@ -108,8 +109,6 @@ class Part:
                 lag = start_time - self.env.now
                 if lag > 0:
                     yield self.env.timeout(lag)
-            # if self.name == "A0029_E81P0":
-            #     print(0)
             process = self.processes[self._convert_process(step)]
             if process.name == 'Sink':
                 self.finish = True
@@ -170,7 +169,6 @@ class Part:
 
             if step == 0:  # 첫 단계이면
                 part = yield self.part_store.get()
-                print(self.name, type(part), self.env.now)
                 self.monitor.record(self.env.now, None, None, part_id=self.name, event="created")
                 self.blocks['Created Part'] += 1
                 print("{0} created at {1}, Creating Part is finished {2}/{3}".format(self.name, self.env.now, self.blocks['Created Part'], len(self.blocks)-1))
@@ -192,17 +190,7 @@ class Part:
 
                 self.where_stock = None
             else:  # get part from previous process
-                #if len(self.part_store.items) > 0:   # 이미 준비되어 있는 경우
                 part = yield self.part_store.get()
-                # else:  # 아직 이전 공정에서 끝나지 않은 경우
-                #     if step >= 1:
-                #         self.part_delay.append(self.env.event())
-                #         self.monitor.record(self.env.now, None, None, part_id=self.name, event="Delay Start for part",
-                #                             memo="Previous work has not finished")
-                #         yield self.part_delay[0]
-                #         part = yield self.part_store.get()
-                #         self.monitor.record(self.env.now, None, None, part_id=self.name, event="Delay Finish for part",
-                #                             memo="Previous work has finished")
 
             # Go to Next Priocess
             if process.name == 'Sink':
@@ -241,7 +229,7 @@ class Part:
             tp_flag = True
 
         if (next_start_time is not None) and (next_start_time <= 100000) and (
-                next_start_time - self.env.now > 1):  # 적치장 가야 함
+                next_start_time - self.env.now >= self.stock_lag):  # 적치장 가야 함
             next_process_name = self._convert_process(part.step + 1)
             next_process = self.inout[next_process_name][0]
 
@@ -278,6 +266,7 @@ class Part:
 
         next_stock = None
         shortest_path = 1e8
+
         for idx in range(len(stock_list)):
             temp_stock = self.stocks[stock_list[idx]]
             if temp_stock.capacity_unit == 'm2':
@@ -394,7 +383,7 @@ class Part:
 
 
 class Sink:
-    def __init__(self, env, processes, parts, monitor, network, stocks, inout, converting):
+    def __init__(self, env, processes, parts, monitor, network, stocks, inout, converting, stock_lag=2):
         self.env = env
         self.name = 'Sink'
         self.processes = processes
@@ -404,9 +393,8 @@ class Sink:
         self.stocks = stocks
         self.inout = inout
         self.converting = converting
+        self.stock_lag = stock_lag
 
-
-        # self.tp_store = simpy.FilterStore(env)  # transporter가 입고 - 출고 될 store
         self.parts_rec = 0
         self.last_arrival = 0.0
 
@@ -428,7 +416,7 @@ class Sink:
             parent_start_time = self.parts[parent_block].data[(0, 'start_time')]
 
             erected_residual_time = parent_start_time - self.env.now
-            if erected_residual_time > 2:  # Parent Block 시작까지 2일 이상 남음 --> Child는 적치장에 있다가 합침
+            if erected_residual_time >= self.stock_lag:  # Parent Block 시작까지 2일 이상 남음 --> Child는 적치장에 있다가 합침
                 standard_process = part.location if parent_first_process in ['선행의장부', '기장부', '의장1부', '의장2부', '의장3부',
                                                                              '선행도장부'] else parent_first_process
                 if standard_process in self.converting.keys():
@@ -438,7 +426,7 @@ class Sink:
                 self.monitor.record(self.env.now, None, None, part_id=part.name, event="Process to Stock",
                                     resource=used_resource, load=part.weight, from_process=part.location,
                                     to_process=next_stock, distance=self.network[self.inout[part.location][1]][self.inout[next_stock][0]],
-                                    memo="More than 2 days left to start Parent Block")
+                                    memo="More than {0} days left to start Parent Block".format(self.stock_lag))
                 self.stocks[next_stock].put(part, parent_start_time)  # Child Block은 적치장에 입고
                 self.parts[parent_block].in_child['Stock'].append((part.name, next_stock))
             else:  # 바로 Parent Block이랑 합쳐지는 경우
@@ -453,8 +441,6 @@ class Sink:
                                         distance=self.network[self.inout[part.location][1]][self.inout[parent_first_process][0]])
                 self.parts[parent_block].in_child['Parent'].append([part, tp_flag])
 
-            if parent_block == "A0004_A31P0":
-                print(0)
             if (len(self.parts[parent_block].part_store.items) == 0) and (
                     self.parts[parent_block].assembly_idx is False):
                 self.parts[parent_block].part_store.put(self.parts[parent_block].block)
@@ -471,7 +457,7 @@ class Sink:
         self.parts_rec += 1
         self.last_arrival = self.env.now
         self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="completed")
-        print("Finished Part {0}/{1}".format(self.parts_rec, len(self.parts) - 1))
+        print("Finished Part {0}/{1}".format(self.parts_rec, len(self.parts)))
 
     def _find_stock(self, process, part):
         stock_list = list(self.stocks.keys())
@@ -527,7 +513,7 @@ class Process:
                  process_time=None, capacity=float('inf'), routing_logic='cyclic', priority=None,
                  capa_to_machine=10000, capa_to_process=float('inf'), MTTR=None, MTTF=None,
                  initial_broken_delay=None, delay_time=None, workforce=None, convert_dict=None, unit="m2",
-                 process_type=None):
+                 process_type=None, stock_lag=2):
 
         # input data
         self.env = env
@@ -581,7 +567,7 @@ class Process:
                     process_time=self.process_time[i], priority=self.priority[i],
                     waiting=self.waiting_machine, monitor=monitor, MTTF=self.MTTF[i], MTTR=self.MTTR[i],
                     initial_broken_delay=self.initial_broken_delay[i],
-                    workforce=self.workforce[i]) for i in range(self.machine_num)]
+                    workforce=self.workforce[i], stock_lag=stock_lag) for i in range(self.machine_num)]
         # resource
         self.tp_store = dict()
 
@@ -603,10 +589,11 @@ class Process:
                 self.start_time = self.env.now
             self.in_process += 1
             self.event_block_num.append(self.in_process)
-            print(self.env.now, self.name)
 
             self.capacity_dict = record_capacity(self.capacity_dict, self.capacity_unit,
                                                  self.parts[part.name].blocks[part.name], type='used', inout='in')
+            self.event_area.append(self.parts[part.name].blocks[part.name].area)
+            self.event_time.append(self.env.now)
 
             self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Process_entered",
                                 process_type=self.process_type, load=self.capacity_dict[self.capacity_unit]['used'],
@@ -631,7 +618,7 @@ class Process:
 
 class Machine:
     def __init__(self, env, name, process_name, parts, processes, resource, process_time, priority, waiting, monitor,
-                 MTTF, MTTR, initial_broken_delay, workforce):
+                 MTTF, MTTR, initial_broken_delay, workforce, stock_lag):
         # input data
         self.env = env
         self.name = name
@@ -647,6 +634,7 @@ class Machine:
         self.MTTF = MTTF
         self.initial_broken_delay = initial_broken_delay
         self.workforce = workforce
+        self.stock_lag = stock_lag
 
         # variable defined in class
         self.machine = simpy.Store(env)
@@ -700,6 +688,7 @@ class Machine:
             if proc_time is None:
                 print("Error!")
 
+
             while proc_time > 0:
                 if self.MTTF is not None:
                     self.env.process(self.break_machine())
@@ -741,8 +730,6 @@ class Machine:
             self.working = False
 
             if self.parts[part.name].assemble_flag is False:
-                if part.name == "A0004_E31P0":
-                    print(0)
                 self.parts[part.name].assemble_delay[self.name] = self.env.event()
                 self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
                                     event="process delay",
@@ -753,7 +740,7 @@ class Machine:
                                     memo='All child arrive to parent {0}'.format(part.name))
 
             # if the part doesn't go to stock before to next process -> stay here before to go to next process
-            if (part.data[(part.step + 1, 'process')] != 'Sink') and (part.data[(part.step + 1, 'start_time')] - self.env.now < 2):
+            if (part.data[(part.step + 1, 'process')] != 'Sink') and (part.data[(part.step + 1, 'start_time')] - self.env.now < self.stock_lag):
                 residual_time = part.data[(part.step + 1, 'start_time')] - self.env.now
                 if residual_time > 0:
                     yield self.env.timeout(residual_time)
@@ -761,10 +748,8 @@ class Machine:
                 if self.parts[part.name].parent is not None:
                     parent_block = self.parts[part.name].parent
                     residual_time = self.parts[parent_block].data[(0, 'start_time')] - self.env.now
-                    if (residual_time < 2) and (residual_time > 0):
+                    if (residual_time < self.stock_lag) and (residual_time > 0):
                         yield self.env.timeout(residual_time)
-
-
 
             # transfer to 'to_process' function
             its_process = self.processes[self.process_name]
@@ -772,12 +757,6 @@ class Machine:
                                                         part, type='used', inout='out')
             its_process.capacity_dict = record_capacity(its_process.capacity_dict, its_process.capacity_unit,
                                                         part, type='preemptive', inout='out')
-            # self.processes[self.process_name].area_used -= part.area
-            # self.processes[self.process_name].preemptive_area -= part.area
-            # self.processes[self.process_name].event_area.append(self.processes[self.process_name].area_used)
-            # self.processes[self.process_name].event_time.append(self.env.now)
-            # if self.env.now >= 110.0:
-            #     print(0)
             self.parts[part.name].return_to_part(part)
             self.processes[self.process_name].in_process -= 1
             self.processes[self.process_name].event_block_num.append(self.processes[self.process_name].in_process)

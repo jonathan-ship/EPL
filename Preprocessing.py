@@ -122,8 +122,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                                       (activity_data_all['공정공종'] != 'L4B') & (activity_data_all['공정공종'] != 'L4A') & \
                                       (activity_data_all['공정공종'] != 'LX3') & (activity_data_all['공정공종'] != 'JX3')]
 
-
-
         print("공정 골라내기 완료")
 
         # making the processing position the same with "외부"
@@ -183,8 +181,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
         bom_data['area'] = bom_data['area'].replace(0.0, area_avg)
         bom_data['중량'] = bom_data['중량'].replace(0.0, weight_avg)
 
-
-
         # recording block information into 'block_info' dictionary
         block_list_for_source = copy.deepcopy(block_list)
         for block_code in block_list:
@@ -216,11 +212,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
 
                     process_data[4*idx + 2] = previous_dict['작업부서']
                     process_data[4 * idx + 3] = previous_dict['공정공종']
-
-                    validation[block_code][3 * idx] = (initial_date + timedelta(days=process_data[4 * idx])).date()
-                    validation[block_code][3 * idx + 1] = (
-                                initial_date + timedelta(days=process_data[4 * idx] + process_time)).date()
-                    validation[block_code][3 * idx + 2] = previous_dict['작업부서']
 
                     idx += 1
                 else:
@@ -258,12 +249,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                             process_data[4 * idx + 2] = previous_dict['작업부서']
                             process_data[4 * idx + 3] = previous_dict['공정공종']
 
-                            validation[block_code][3 * idx] = (
-                                        initial_date + timedelta(days=process_data[4 * idx])).date()
-                            validation[block_code][3 * idx + 1] = (
-                                    initial_date + timedelta(days=process_data[4 * idx] + process_time)).date()
-                            validation[block_code][3 * idx + 2] = previous_dict['작업부서']
-
                             idx += 1
                             save_start = start_date
                             save_finish = finish_date
@@ -291,12 +276,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                             #                                             converting=converting, dock_mapping=dock_mapping)
                             process_data[4 * idx + 2] = previous_dict['작업부서']
                             process_data[4 * idx + 3] = previous_dict['공정공종']
-
-                            validation[block_code][3 * idx] = (
-                                        initial_date + timedelta(days=process_data[4 * idx])).date()
-                            validation[block_code][3 * idx + 1] = (
-                                    initial_date + timedelta(days=process_data[4 * idx] + process_time)).date()
-                            validation[block_code][3 * idx + 2] = previous_dict['작업부서']
 
                             idx += 1
 
@@ -334,26 +313,12 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                         child = bom_parent_data['child code'][i]
                         if child in block_list:
                             child_list.append(child)
-                            # last_process = convert_process(list(block_group.get_group(child)['작업부서'])[-1], child,
-                            #                                converting=converting, dock_mapping=dock_mapping)
-                            # if last_process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장2부', '의장3부',
-                            #                         '도장1부', '도장2부', '발판지원부']:
-                            #     child_weight = list(bom_group_by_child.get_group(child)['중량'])[-1]
-                            #     child_size = list(bom_group_by_child.get_group(child)['size'])[-1]
-                            #     child_last_process_weight.append([last_process, child_weight, child_size])
-
                     if len(child_list) > 0:
                         block_info[block_code]['child_block'] = child_list
                     else:
                         block_info[block_code]['child_block'] = None
                         block_list_for_source.remove(block_code)
 
-                    # if len(child_last_process_weight) > 0:
-                    #     child_last_process_weight = sorted(child_last_process_weight, key=lambda x: (x[1], x[2]))
-                    #     block_info[block_code]['source_location'] = child_last_process_weight[0][0]
-                    # if len(child_list) > 0 and len(child_last_process_weight) == 0:
-                    #     print(block_code)
-                    #     print(0)
                 else:
                     block_info[block_code]['child_block'] = None
             else:
@@ -421,16 +386,9 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
 
     columns = pd.MultiIndex.from_product([[i+1 for i in range(8)], ['Start', "Finish", "Department"]])
     blocks = list(validation.keys())
-    validation_df = pd.DataFrame(index=blocks, columns=columns)
-    for block_code in blocks:
-        validation_df.loc[block_code] = validation[block_code]
-    #validation_df = pd.DataFrame(validation)
-    # validation_df = validation_df.transpose()
-    # validation_df = pd.DataFrame(validation_df, columns=columns)
-    validation_df.to_excel(input_data['default_result'] + "Validation.xlsx")
+
     preproc['block_info'] = block_info
     # Save data
-    with open(input_data['default_input'] + 'Layout_data.json', 'w') as f:
+    with open(input_data['path_preprocess'], 'w') as f:
         json.dump(preproc, f)
 
-    return input_data['default_input'] + 'Layout_data.json'
