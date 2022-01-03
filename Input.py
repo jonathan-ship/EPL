@@ -2,16 +2,16 @@ import json, os
 
 ''' User can write down the setting '''
 
-PROJECT = "Case 3"
+PROJECT = "New_Version"
 
 
-START = '2018-06-30'
-FINISH = '2019-12-31'
+START = '2017-01-01'
+FINISH = '2022-12-21'
 
 
 # indicator
 ## 기간이 같거나, TP, Converting, Factory_info 파일만 바꾼 경우 -> True
-USE_PRIOR_PREPROCESS = True
+USE_PRIOR_PREPROCESS = False
 ''' if the use_prior_input is False '''
 # user puts the input file name down
 # 1. If 'do_proproc' is True
@@ -21,13 +21,11 @@ if not, fill the number what you want to simulate for in the list
 '''
 
 # If reuse the prior file on preprocess --> 전처리 안 할 때는 굳이 안 건드려도 됨
-PATH_PRIOR_PROCESS = "Layout_data_20180630_20191231.json"
+PATH_PRIOR_PROCESS = "Layout_data_20191211_20201118.json"
 
 # If you want to run the Preprocess.py
 PATH_ACTIVITY = "Layout_Activity.xlsx"
 PATH_BOM = "Layout_BOM.xlsx"
-
-
 
 # mandatory path of data for simulation
 PATH_CONVERTING = "Converting.xlsx"  # mapping department to factory
@@ -71,7 +69,7 @@ if __name__ == "__main__":
 
     else:  # 새로 전처리 하는 경우
         input_data['path_activity_data'] = INPUT_PATH + PATH_ACTIVITY
-        input_data['path_bom_data'] = INPUT_PATH + PATH_BOM
+        input_data['path_bom_data'] = INPUT_PATH+ PATH_BOM
 
         input_data['start_date'] = START
         input_data['finish_date'] = FINISH
@@ -79,7 +77,6 @@ if __name__ == "__main__":
         start_date = start_temp[0] + start_temp[1] + start_temp[2]
         finish_temp = FINISH.split("-")
         finish_date = finish_temp[0] + finish_temp[1] + finish_temp[2]
-        input_data['path_preprocess'] = input_data['default_input'] + "Layout_data_" + start_date + "_" + finish_date + ".json"
 
     # the other datas path to simulate
     input_data['path_converting_data'] = INPUT_PATH + PATH_CONVERTING
@@ -88,6 +85,7 @@ if __name__ == "__main__":
     input_data['path_distance'] = INPUT_PATH + PATH_DISTANCE  ## distance
     input_data['path_process_info'] = INPUT_PATH + PATH_PROCESS_INFO
     input_data['path_transporter'] = INPUT_PATH + PATH_TP
+
 
     input_data['parameter_stock_lag_time'] = 5
     input_data['parameter_road_warning'] = 1

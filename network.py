@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import numpy as np
+import openpyxl
 
 '''
 Read and Convert from excel file to json file 
@@ -12,8 +13,8 @@ Read and Convert from excel file to json file
 def convert_to_json_road(path_distance, path_objectid, data_path):
     padding = ['Stock', 'Shelter', 'Painting']
 
-    from_to_matrix_distance = pd.read_excel(path_distance, index_col=0)
-    from_to_matrix_edge = pd.read_csv(path_objectid, index_col=0)
+    from_to_matrix_distance = pd.read_excel(path_distance, index_col=0, engine='openpyxl')
+    from_to_matrix_edge = pd.read_csv(path_objectid, index_col=0, encoding='cp949')
     #
     # # basic padding -> Source, Sink
     basic = ["Source", "Sink"]

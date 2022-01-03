@@ -54,7 +54,7 @@ def read_converting(path):
 
 def read_dock_series(path: object) -> object:
     data = pd.read_excel(path)
-    dock_series_mapping = {data.iloc[i]['호선']: data.iloc[i]['도크'] for i in range(len(data))}
+    dock_series_mapping = {str(data.iloc[i]['호선']): data.iloc[i]['도크'] for i in range(len(data))}
 
     return dock_series_mapping
 
@@ -80,15 +80,18 @@ def modeling_parts(environment, data, process_dict, monitor_class, distance_matr
     blocks = {'Created Part': 0}
     for part in data:
         part_data = data[part]
-        series = part[:5]
-        yard = 1 if dock_dict[series] in [1, 2, 3, 4, 5] else 2
-        block = Block(part, part_data['area'], part_data['size'], part_data['weight'], part_data['data'], yard, dock_dict[series])
-        blocks[block.name] = block
-        part_dict[part] = Part(part, environment, part_data['data'], process_dict, monitor_class,
-                               resource=None, network=distance_matrix, block=block, blocks=blocks,
-                               child=part_data['child_block'], parent=part_data['parent_block'], stocks=stock_dict,
-                               Inout=inout, convert_to_process=convert_dict, dock=dock_dict[series],
-                               source_location=part_data['source_location'], stock_lag=lag_time)
+        temp_part = part.split("_")
+        series = temp_part[0]
+        if (series in dock_dict.keys()) and (dock_dict[series] in [1, 2, 3, 4, 5, 8, 9]):
+            yard = 1 if dock_dict[series] in [1, 2, 3, 4, 5] else 2
+            block = Block(part, part_data['area'], part_data['size'], part_data['weight'], part_data['data'], yard,
+                          dock_dict[series], child=part_data['child_block'])
+            blocks[block.name] = block
+            part_dict[part] = Part(part, environment, part_data['data'], process_dict, monitor_class,
+                                   resource=None, network=distance_matrix, block=block, blocks=blocks,
+                                   child=part_data['child_block'], parent=part_data['parent_block'], stocks=stock_dict,
+                                   Inout=inout, convert_to_process=convert_dict, dock=dock_dict[series],
+                                   stock_lag=lag_time)
 
     return part_dict
 
@@ -130,11 +133,8 @@ def modeling_processes(process_dict, stock_dict, process_info, environment, part
 
 if __name__ == "__main__":
     start = time.time()
-    # print(sys.argv[1])
     # 1. read input data
-    #with open('./Case 3/input_data.json', 'r') as f:
-    #    input_data = json.load(f)
-    with open(sys.argv[1], 'r') as f:
+    with open('./HiTest/input_data.json', 'r') as f:
         input_data = json.load(f)
 
     process_info, inout = read_process_info(input_data['path_process_info'])
@@ -145,20 +145,20 @@ if __name__ == "__main__":
     if input_data['use_prior_process']:
         with open(input_data['path_preprocess'], 'r') as f:
             sim_data = json.load(f)
-        print("Finish data loading at ", time.time() - start)
+        print("Finish data loading at {0} seconds".format(round(time.time() - start, 2)), flush=True)
     else:
-        print("Start combining Activity and BOM data at ", time.time() - start)
-        processing_with_activity_N_bom(input_data, dock, converting)
+        print("Start combining Activity and BOM data at {0} seconds".format(round(time.time() - start, 2)), flush=True)
+        data_preprocess_path = processing_with_activity_N_bom(input_data, dock, converting)
 
-        print("Finish data preprocessing at ", time.time() - start)
+        print("Finish data preprocessing at {0} seconds".format(round(time.time() - start, 2)), flush=True)
 
-        with open(input_data['path_preprocess'], 'r') as f:
+        with open(data_preprocess_path, 'r') as f:
             sim_data = json.load(f)
-        print("Finish data loading at ", time.time() - start)
+        print("Finish data loading at {0} seconds".format(round(time.time() - start, 2)), flush=True)
 
     initial_date = sim_data['simulation_initial_date']
     block_data = sim_data['block_info']
-
+    print("Total Blocks = {0}".format(len(block_data)), flush=True)
     network_distance = read_road(input_data['path_distance'], input_data['path_road'], input_data['default_input'])
 
     # define simulation environment
@@ -168,13 +168,8 @@ if __name__ == "__main__":
     stock_yard = dict()
     processes = dict()
 
-    # 0. Monitor
+    # 1. Monitor
     monitor = Monitor(input_data['default_result'], input_data['project_name'], pd.to_datetime(initial_date))
-
-    # 1. Resource
-    # tps, tp_minmax = modeling_TP(input_data['path_transporter'])
-    # resource = Resource(env, processes, stock_yard, monitor, tps=tps, tp_minmax=tp_minmax, network=network_distance,
-    #                     inout=inout)
 
     # 2. Block
     parts = modeling_parts(env, block_data, processes, monitor, distance_matrix=network_distance,
@@ -189,28 +184,20 @@ if __name__ == "__main__":
     start_sim = time.time()
     env.run()
     finish_sim = time.time()
-
-    print("Execution time:", finish_sim - start_sim)
+    print("FINISH SIMULATION", flush=True)
+    print("Execution time: {0} seconds".format(round(finish_sim - start_sim, 2)), flush=True)
     # path_event_tracer, path_tp_info, path_road_info = monitor.save_information()
     path_event_tracer = monitor.save_information()
-    print("number of part created = ", monitor.created)
-    print("number of completed = ", monitor.completed)
+    print("number of part created = ", monitor.created, flush=True)
+    print("number of completed = ", monitor.completed, flush=True)
 
-    # if not os.path.exists(input_data['default_result'] + 'Factory_Block_Load/'):
-    #     os.makedirs(input_data['default_result'] + 'Factory_Block_Load/')
-    #
-    # for process in processes:
-    #     if process != "Sink":
-    #         temp_df = pd.DataFrame()
-    #         temp_df['Time'] = processes[process].event_time
-    #         temp_df['Block Area'] = processes[process].event_area
-    #         temp_df.to_excel(input_data['default_result'] + 'Factory_Block_Load/' + '{0}.xlsx'.format(process))
     output_path = dict()
-    output_path['input_path'] = './Case 3/input_data.json'
+    output_path['input_path'] = './HiTest/input_data.json'
     output_path['event_tracer'] = path_event_tracer
     output_path['inout'] = inout
+    output_path['path_preprocess'] = input_data['path_preprocess'] if input_data['use_prior_process'] else data_preprocess_path
 
     with open(input_data['default_result'] + 'result_path.json', 'w') as f:
         json.dump(output_path, f)
-    print("Finish")
+    print("Start Post-Processing", flush=True)
     post_processing(input_data['default_result'] + 'result_path.json')

@@ -41,14 +41,22 @@ def road_usage(event_tracer, network_road, inout, result_path):
     unload, 호출된 TP가 호출한 공장까지 가는 이벤트 : tp_unloaded_start
     load, tp가 블록이랑 같이 이동하는 이벤트 : tp_loaded_start
     '''
+    # road_id 불러오기
+    road_usage_dict = dict()
+    for from_process in network_road.keys():
+        for to_process in network_road[from_process].keys():
+            object_id_list = network_road[from_process][to_process]
+            if len(object_id_list) >= 1:
+                for road_id in object_id_list:
+                    object_id = road_id[0]
+                    if object_id not in road_usage_dict.keys():
+                        road_usage_dict[object_id] = 0
 
     # Select Target Events]
     event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
     event_tracer_road = event_tracer_road.reset_index(drop=True)
 
     # Variables
-    road_usage_dict = dict()
-
     for i in range(len(event_tracer_road)):
         temp = event_tracer_road.iloc[i]
 
@@ -58,20 +66,18 @@ def road_usage(event_tracer, network_road, inout, result_path):
 
         for road_id in used_road:
             object_id = road_id[0]
-            if object_id not in road_usage_dict.keys():
-                road_usage_dict[object_id] = 0
             # 사용 횟수
             road_usage_dict[object_id] += 1
 
     road_df = pd.DataFrame(road_usage_dict, index=["Times"])
     road_df = road_df.transpose()
     road_df.to_excel(result_path + "/Road Usage.xlsx")
+    print("FINISH Calculating Road Usage", flush=True)
 
 
-def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp moving distance and time each day
+def tp_index(event_tracer, tp_info, project_dock, result_path, start_time, finish_time):  # get get tp moving distance and time each day
     # Select Target Events
     event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
-    event_tracer_road.loc[:, 'Date'] = pd.to_datetime(event_tracer_road['Date'], format='%Y-%m-%d')
 
     # event_tracer_road = event_tracer_road.reset_index(drop=True)
     time_list = list(np.unique(list(event_tracer_road['Date'])))
@@ -81,9 +87,13 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
     capacity_1.sort()
     capacity_2 = list(tp_info[2].keys())
     capacity_2.sort()
-    capacity_dict = {1: capacity_1, 2: capacity_2}
-    tp_output = {1: {time: {capacity: 0 for capacity in capacity_1} for time in time_list},
-                 2: {time: {capacity: 0 for capacity in capacity_2} for time in time_list}}
+    tp_output = dict()
+    for capacity in capacity_1:
+        tp_output["{0}_1".format(capacity)] = dict()
+        tp_output["{0}_1".format(capacity)] = {time : 0.0 for time in time_list}
+    for capacity in capacity_2:
+        tp_output["{0}_2".format(capacity)] = dict()
+        tp_output["{0}_2".format(capacity)] = {time: 0.0 for time in time_list}
     date_time_list = list()
     for date_time in time_list:
         date_time_list.append(date_time.date())
@@ -91,29 +101,18 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
         daily_event = daily_event.reset_index(drop=True)
         for idx in range(len(daily_event)):
             temp = daily_event.iloc[idx]
-            series = temp['Part'][:5]
+            temp_part = temp['Part'].split("_")
+            series = temp_part[0]
             yard = 1 if project_dock[series] in [1, 2, 3] else 2
 
             load = temp['Load'] if temp['Load'] <= max(tp_info[yard].keys()) else max(tp_info[yard].keys())
             available_tp = min(list(filter(lambda x: x >= load, tp_info[yard].keys())))
-            tp_output[yard][date_time][available_tp] += temp['Distance']
+            tp_output["{0}_{1}".format(available_tp, yard)][date_time] += temp['Distance']
 
+    yard_tp = pd.DataFrame.from_dict(tp_output)
+    yard_tp["Date"] = date_time_list
 
-        tp_output[1][date_time] = {
-            "{0}_1".format(capacity): round(tp_output[1][date_time][capacity] / tp_info[1][capacity], 1) for capacity
-            in capacity_dict[1]}
-        tp_output[2][date_time] = {
-            "{0}_2".format(capacity): round(tp_output[2][date_time][capacity] * 100 / tp_info[2][capacity], 1) for capacity
-            in capacity_dict[2]}
-
-    yard_1 = pd.DataFrame.from_dict(tp_output[1])
-    yard_1 = yard_1.transpose()
-
-    yard_2 = pd.DataFrame.from_dict(tp_output[2])
-    yard_2 = yard_2.transpose()
-    yard_2['Date'] = date_time_list
-
-    yard_tp = pd.concat([yard_1, yard_2], 1)
+    # yard_tp = pd.concat([yard_1, yard_2], axis=1)
     yard_tp = yard_tp.reset_index(drop=True)
     tp_num_list = list()
     tp_capa_list = list(yard_tp)
@@ -127,50 +126,67 @@ def tp_index(event_tracer, tp_info, project_dock, result_path):  # get get tp mo
     tp_num_list.append("Number")
     num_df = pd.DataFrame(columns=tp_capa_list)
     num_df.loc[0] = tp_num_list
-    yard_tp = pd.concat([num_df, yard_tp], 0)
+    yard_tp = pd.concat([num_df, yard_tp], axis=0)
     yard_tp = yard_tp.set_index("Date", drop=True)
+    if len(yard_tp) == 1:  # Data 가 없을 때
+        yard_tp.loc[start_time.date()] = [0 for _ in range(len(yard_tp.columns))]
+        yard_tp.loc[finish_time.date()] = [0 for _ in range(len(yard_tp.columns))]
+    capa_yard_list = list(yard_tp.columns)
+    # for capa_yard in capa_yard_list:
+    #     temp = capa_yard.split("_")
+    #     capa = int(temp[0])
+    #     yard = int(temp[1])
+    #     capacity_of_tp = tp_info[yard][capa]
+    #     yard_tp.loc[:, capa_yard] = yard_tp.loc[:, capa_yard].apply(lambda x: round((x/capacity_of_tp) * 100, 1))
+
     yard_tp.to_excel(result_path + "Transporter.xlsx")
+    print("FINISH Calculating Transporter Utilization", flush=True)
 
 
-def calculate_occupied_area(result_path, event_tracer, factory_info):
+def calculate_occupied_area(result_path, event_tracer, factory_info, start_date, finish_date):
     if not os.path.exists(result_path + "/Load"):
         os.makedirs(result_path + "/Load")
     event_tracer = event_tracer[
-        (event_tracer['Event'] == "Process_entered") | (event_tracer['Event'] == "part_transferred_to_out_buffer") | (
-                    event_tracer['Event'] == "Stock_in") | (event_tracer['Event'] == "Stock out")]
-    factory_type = list(np.unique(list(event_tracer['Process Type'])))
-    event_tracer_grp = event_tracer.groupby(event_tracer['Process Type'])
+        (event_tracer['Event'] == "Process In") | (event_tracer['Event'] == "Process Out") | (
+                    event_tracer['Event'] == "Stock In") | (event_tracer['Event'] == "Stock Out")]
+    factory_type = list(factory_info.keys())
+    each_factory_group = event_tracer.groupby(event_tracer['Process'])
+    event_factories = list(np.unique(list(event_tracer['Process'])))
     for types in factory_type:
-        factory_grp = event_tracer_grp.get_group(types)
-        factories = list(np.unique(list(factory_grp['Process'])))
-        each_factory_group = factory_grp.groupby(factory_grp['Process'])
-
-        writer = pd.ExcelWriter(result_path + "/Load/{0}.xlsx".format(types), engine='xlsxwriter')
-
+        if types == "Stockyard":
+            writer = pd.ExcelWriter(result_path + "/Load/Stock.xlsx", engine='xlsxwriter')
+        else:
+            writer = pd.ExcelWriter(result_path + "/Load/{0}.xlsx".format(types), engine='xlsxwriter')
+        factories = list(factory_info[types].keys())
         for factory in factories:
-            factory_event = each_factory_group.get_group(factory)
-            factory_event = factory_event.reset_index(drop=True)
-            time = list()
-            load = list()
-            capacity_ratio = list()
-            overload = list()
-            for i in range(len(factory_event)):
-                temp = factory_event.iloc[i]
-                load.append(temp['Load'])
-                time.append(temp['Date'].date())
-                occupied_ratio = int(temp['Load'] / factory_info[factory] * 100) if factory not in ["Stock", "Shelter", "Painting"] else None
-                capacity_ratio.append(occupied_ratio)
-                overload_ratio = occupied_ratio if (factory not in ["Stock", "Shelter", "Painting"]) and (occupied_ratio >= 100) else None
-                overload.append(overload_ratio)
+            factory_df = pd.DataFrame([], columns=[str(factory_info[types][factory]), "Load", "Ratio[%]", "OverLoad[%]"])
+            if factory in event_factories:
+                factory_event = each_factory_group.get_group(factory)
+                factory_event = factory_event.reset_index(drop=True)
+                time = list()
+                load = list()
+                capacity_ratio = list()
+                overload = list()
+                for i in range(len(factory_event)):
+                    temp = factory_event.iloc[i]
+                    load.append(temp['Load'])
+                    time.append(temp['Date'].date())
+                    occupied_ratio = int(temp['Load'] / factory_info[types][factory] * 100) if (factory_info[types][factory] > 0) and (factory_info[types][factory] <= 1e20) else 0.0
+                    capacity_ratio.append(occupied_ratio)
+                    overload_ratio = occupied_ratio if (factory_info[types][factory] > 0) and (factory_info[types][factory] <= 1e20) and (occupied_ratio >= 100) else None
+                    overload.append(overload_ratio)
 
-            factory_df = pd.DataFrame([], columns=[str(factory_info[factory]), "Load", "Ratio[%]", "OverLoad[%]"])
-            factory_df[str(factory_info[factory])] = time
-            factory_df["Load"] = load
-            factory_df["Ratio[%]"] = capacity_ratio
-            factory_df["OverLoad[%]"] = overload
+                factory_df[str(factory_info[types][factory])] = time
+                factory_df["Load"] = load
+                factory_df["Ratio[%]"] = capacity_ratio
+                factory_df["OverLoad[%]"] = overload
+            else:
+                factory_df.loc[0] = [start_date.date(), 0, 0, None]
+                factory_df.loc[1] = [finish_date.date(), 0, 0, None]
 
             factory_df.to_excel(writer, sheet_name=factory, index=False)
         writer.save()
+        print("FINISH Calculating {0} Load".format(types), flush=True)
 
 
 def calculate_block_moving_distance(event_tracer, block_info, result_path):
@@ -182,26 +198,32 @@ def calculate_block_moving_distance(event_tracer, block_info, result_path):
         if block_code in block_info.keys():
             block_event = block_group.get_group(block_code)
             moving_event = block_event[block_event['Resource']=="Transporter"]
+            avg_distance = 0
             if len(moving_event) > 0:
                 moving_distance = list(moving_event['Distance'])
                 moving_distance = [i for i in moving_distance if i != 0]
                 if len(moving_distance) > 0:
-                    avg_distance = np.mean(moving_distance)
+                    avg_distance = np.sum(moving_distance)
                     distance_list.append(avg_distance)
                     block_code_list.append(block_code)
+                else:
+                    distance_list.append(0)
+                    block_code_list.append(block_code)
+            else:
+                distance_list.append(0)
+                block_code_list.append(block_code)
 
-    fig, ax = plt.subplots()
-    bins = np.linspace(0, max(distance_list), 50)
-    ax.hist(distance_list, density=False, histtype='stepfilled', alpha=0.2, bins=bins)
-    plt.savefig(result_path+'/Block Moving Distance.png', dpi=600)
-
+    if len(block_code_list) == 0:
+        block_code_list.append("No Blocks in Period")
+        distance_list.append("0")
     distance_df = pd.DataFrame(columns=["Block", "Avg.Distance"])
     distance_df["Block"] = block_code_list
     distance_df["Avg.Distance"] = distance_list
-    distance_df.to_excel(result_path + "/Block Moving Distance.xlsx", index=False)
+    distance_df.to_excel(result_path + "Block Moving Distance.xlsx", index=False)
+    print("FINISH Calculating Average Moving Distance of Each Block", flush=True)
 
 
-def road_warning(event_tracer, network_road, inout, block_info, warning_diff, result_path):
+def road_warning(event_tracer, network_road, inout, block_info, warning_diff, result_path, start_date):
     # Select Target Events]
     event_tracer_road = event_tracer[event_tracer['Resource'] == "Transporter"]
     event_tracer_road = event_tracer_road.reset_index(drop=True)
@@ -247,8 +269,11 @@ def road_warning(event_tracer, network_road, inout, block_info, warning_diff, re
     road_warning_df['Difference'] = size_diff_list
     road_warning_df['From'] = from_factory_list
     road_warning_df['To'] = to_factory_list
+    if len(road_warning_df) == 0:
+        road_warning_df.loc[0] = [start_date.date(), "No Block", None, None, None, None, None, None]
 
     road_warning_df.to_excel(result_path + "Road Warning.xlsx", index=False)
+    print("FINISH Calculating Over Size of Block than Road", flush=True)
 
 
 def post_processing(json_path):
@@ -264,21 +289,21 @@ def post_processing(json_path):
     with open(input_data['default_input'] + 'network_edge.json', 'r') as f:
         network_road = json.load(f)
 
-    preproc_data_path = input_data['path_preprocess']
+    preproc_data_path = result_path['path_preprocess']
     with open(preproc_data_path, 'r') as f:
         preproc_data = json.load(f)
 
     tp_df = pd.read_excel(input_data['path_transporter'])
 
     dock_data = pd.read_excel(input_data['path_dock_series_data'])
-    dock = {dock_data.iloc[i]['호선']: dock_data.iloc[i]['도크'] for i in range(len(dock_data))}
+    dock = {str(dock_data.iloc[i]['호선']): dock_data.iloc[i]['도크'] for i in range(len(dock_data))}
 
     start_date_time = pd.to_datetime(preproc_data['simulation_initial_date'], format='%Y-%m-%d')
     finish_date_time = pd.to_datetime(preproc_data['simulation_finish_date'], format='%Y-%m-%d')
     post_range_days = (finish_date_time - start_date_time).days + 1
 
     event_tracer.loc[:, 'Date'] = pd.to_datetime(event_tracer['Date'], format='%Y-%m-%d')
-    #event_tracer = event_tracer[(event_tracer['Date'] >= start_date_time) & (event_tracer['Date'] <= finish_date_time)]
+    event_tracer = event_tracer[(event_tracer['Date'] >= start_date_time) & (event_tracer['Date'] <= finish_date_time)]
     block_info = preproc_data['block_info']
 
     # 1. Road
@@ -286,21 +311,32 @@ def post_processing(json_path):
 
     # 2. Transporter
     tp_info = get_TP_information(tp_df)
-    tp_index(event_tracer, tp_info, dock, input_data['default_result'])
+    tp_index(event_tracer, tp_info, dock, input_data['default_result'], start_date_time, finish_date_time)
 
     # 3. Block Moving Distance
     calculate_block_moving_distance(event_tracer, block_info, input_data['default_result'])
 
     # 4. Occupied Area
     factory_info = pd.read_excel(input_data['path_process_info'])
+    types = list(np.unique(list(factory_info['type'])))
+    factory_grp = factory_info.groupby(factory_info['type'])
     factory_dict = dict()
-    for i in range(len(factory_info)):
-        temp = factory_info.iloc[i]
-        factory_dict[temp['name']] = temp['Capacity']
-    factory_dict['Stock'] = float("inf")
-    factory_dict["Painting"] = float("inf")
-    factory_dict["Shelter"] = float("inf")
-    calculate_occupied_area(input_data['default_result'], event_tracer, factory_dict)
+    for type in types:
+        factory_dict[type] = dict()
+        each_type = factory_grp.get_group(type)
+        each_type = each_type.reset_index(drop=True)
+        for idx in range(len(each_type)):
+            temp = each_type.iloc[idx]
+            factory_dict[type][temp['name']] = temp['Capacity']
+        if type == "Stockyard":
+            factory_dict[type]['Stockyard'] = float("inf")
+        elif type == "Painting":
+            factory_dict[type]["Painting"] = float("inf")
+        elif type == "Shelter":
+            factory_dict[type]["Shelter"] = float("inf")
+
+    calculate_occupied_area(input_data['default_result'], event_tracer, factory_dict, start_date_time, finish_date_time)
 
     road_warning(event_tracer, network_road, result_path['inout'], block_info, input_data['parameter_road_warning'],
-                 input_data['default_result'])
+                 input_data['default_result'], start_date_time)
+    print("FINISH POST-PROCESSING", flush=True)

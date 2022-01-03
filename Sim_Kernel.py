@@ -25,8 +25,91 @@ def record_capacity(capacity_dict, process_unit, block, type='used', inout=None)
     return capacity_dict
 
 
+def convert_process(block_dict, block, step, converting_dict, inout, network_distance, process_dict):
+    present_process = block.data[(step, 'process')]
+    if (present_process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장3부', '의장2부', '도장1부', '도장2부', '발판지원부']) and (
+            present_process not in converting_dict.keys()):
+        return present_process
+    elif present_process in ['건조1부', '건조2부', '건조3부']:
+        return "{0}도크".format(block.dock)
+    elif present_process == "Sink":
+        return "Sink"
+    elif (present_process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장3부', '의장2부', '도장1부', '도장2부', '발판지원부']) and (
+            present_process in converting_dict.keys()):
+        return converting_dict[present_process]
+    else:  # source_location 이 필요한 경우
+        # determine source location
+        source_location = None
+        if (block.location is not None) and (block.location in process_dict.keys()):
+            source_location = block.location
+        elif block.child is not None:  # find from child of grand child block
+            child_location_list = list()
+            for child in block.child:
+                if block_dict[child].location is not None:
+                    child_location_list.append([block_dict[child].location, block_dict[child].weight])
+                else:
+                    if block_dict[child].child is not None:
+                        for grandchild in block_dict[child].child:
+                            if block_dict[grandchild].location is not None:
+                                child_location_list.append(
+                                    [block_dict[grandchild].location, block_dict[grandchild].weight])
+
+            if len(child_location_list) == 0:
+                source_location = "선각공장" if block.yard == 1 else "2야드 중조공장"
+            else:
+                child_location_list = sorted(child_location_list, key=lambda x: x[1], reverse=True)
+                source_location = child_location_list[0][0]
+        else:
+            source_location = "선각공장" if block.yard == 1 else "2야드 중조공장"
+
+        if present_process in ['도장1부', '도장2부', '발판지원부']:
+            return source_location
+        else:
+            process_convert_by_dict = converting_dict[present_process]
+            distance = []
+            pre_choice = process_convert_by_dict[:]
+            compared_process = inout[source_location][1]
+            for process in process_convert_by_dict:
+                process_temp = inout[process][0]
+                if (process_temp in network_distance.keys()) and (compared_process in network_distance.keys()) and \
+                        (network_distance[process_temp][compared_process] is not None) and \
+                        (network_distance[process_temp][compared_process] < 100000):
+                    temp_process = process_dict[process]
+                    if temp_process.capacity_unit == 'm2':
+                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['m2'][
+                            'preemptive'] - block.area
+                    elif temp_process.capacity_unit == 'EA':
+                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['EA']['preemptive'] - 1
+                    else:
+                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['ton'][
+                            'preemptive'] - block.weight
+
+                    if if_to_be_capacity > 0:
+                        distance.append(network_distance[process_temp][compared_process])
+                    else:
+                        pre_choice.remove(process)
+                else:
+                    pre_choice.remove(process)
+            if len(distance) > 0:
+                process_idx = distance.index(min(distance))
+                process = pre_choice[process_idx]
+            else:
+                if present_process == '선행도장부':
+                    process = 'Painting'
+                else:
+                    process = 'Shelter'
+
+            block.data[(step, 'process')] = process
+            block_dict[block.name].data[(step, 'process')] = process
+            process_dict[process].capacity_dict = record_capacity(process_dict[process].capacity_dict,
+                                                                  process_dict[process].capacity_unit,
+                                                                  block_dict[block.name], type='preemptive',
+                                                                  inout='in')
+            return process
+
+
 class Block:
-    def __init__(self, name, area, size, weight, data, yard, dock):
+    def __init__(self, name, area, size, weight, data, yard, dock, child=None):
         self.name = name
         self.area = area
         self.size = size  # 임시
@@ -34,6 +117,7 @@ class Block:
         columns = pd.MultiIndex.from_product([[i for i in range(8)], ['start_time', 'process_time', 'process', 'work']])
         self.data = pd.Series(data, index=columns)
         self.dock = dock
+        self.child = child
 
         self.yard = yard
         self.location = None
@@ -44,7 +128,7 @@ class Block:
 class Part:
     def __init__(self, name, env, process_data, processes, monitor, block, blocks=None, resource=None,
                  network=None, child=None, parent=None, stocks=None, Inout=None, convert_to_process=None,
-                 dock=None, source_location=None, size=None, stock_lag=2):
+                 dock=None, size=None, stock_lag=2):
         self.name = name
         self.env = env
         self.block = block  # class로 모델링한 블록
@@ -64,8 +148,6 @@ class Part:
         self.yard = 1 if dock in [1, 2, 3, 4, 5] else 2
         self.block.yard = self.yard
         self.dock = dock
-        self.source_location = source_location
-        self.block.location = self.source_location
         self.size = size
         self.stock_lag = stock_lag
 
@@ -73,8 +155,6 @@ class Part:
         self.part_store = simpy.Store(env, capacity=1)
         self.assembly_idx = False
         if self.child is None:
-            # self.part_store.put(
-            #     block(name=self.name, location=self.source_location, step=0, yard=self.yard, area=self.area))
             self.part_store.put(self.block)
         self.num_clone = 0
         self.moving_distance_w_TP = []
@@ -96,7 +176,6 @@ class Part:
     def _sourcing(self):
         step = 0
         process = None
-        previous_process = self.source_location
         previous_tp_flag = False
         while not self.finish:
             tp = None
@@ -109,7 +188,11 @@ class Part:
                 lag = start_time - self.env.now
                 if lag > 0:
                     yield self.env.timeout(lag)
-            process = self.processes[self._convert_process(step)]
+            convert_process_by_function = convert_process(self.blocks, self.block, step, self.convert_to_process,
+                                                          self.inout, self.network_distance, self.processes)
+            if convert_process_by_function not in self.processes.keys():
+                print(0)
+            process = self.processes[convert_process_by_function]
             if process.name == 'Sink':
                 self.finish = True
                 self.tp_flag = False
@@ -136,7 +219,7 @@ class Part:
                             self.stocks[child_stock].capacity_dict, self.stocks[child_stock].capacity_unit,
                             self.blocks[child_part.name], type='preemptive', inout='out')
                         self.monitor.record(self.env.now, child_stock, None, part_id=child_part.name,
-                                            event="Stock out", process_type="Stock",
+                                            event="Stock Out", process_type="Stock",
                                             load=self.stocks[child_stock].capacity_dict[
                                                 self.stocks[child_stock].capacity_unit]['used'],
                                             unit=self.stocks[child_stock].capacity_unit, memo="for parent block")
@@ -169,7 +252,7 @@ class Part:
 
             if step == 0:  # 첫 단계이면
                 part = yield self.part_store.get()
-                self.monitor.record(self.env.now, None, None, part_id=self.name, event="created")
+                self.monitor.record(self.env.now, None, None, part_id=self.name, event="Block Created")
                 self.blocks['Created Part'] += 1
                 print("{0} created at {1}, Creating Part is finished {2}/{3}".format(self.name, self.env.now, self.blocks['Created Part'], len(self.blocks)-1))
             elif self.in_stock:  # 적치장에 있는 경우 -> 시간에 맞춰서 꺼내줘야 함
@@ -203,7 +286,7 @@ class Part:
                 process.buffer_to_machine.put(part)
                 used_resource = "Transporter" if self.tp_flag is True else None
                 if self.in_stock is True:  # 적치장에서 공장으로 갈 때
-                    self.monitor.record(self.env.now, None, None, part_id=self.name, event="Stockyard to Process",
+                    self.monitor.record(self.env.now, None, None, part_id=self.name, event="Stock to Process",
                                         resource=used_resource, load=self.block.weight, unit="ton",
                                         from_process=previous_process, to_process=process.name,
                                         distance=self.network_distance[self.inout[previous_process][1]][self.inout[process.name][0]])
@@ -230,7 +313,8 @@ class Part:
 
         if (next_start_time is not None) and (next_start_time <= 100000) and (
                 next_start_time - self.env.now >= self.stock_lag):  # 적치장 가야 함
-            next_process_name = self._convert_process(part.step + 1)
+            next_process_name = convert_process(self.blocks, self.block, part.step + 1, self.convert_to_process, self.inout,
+                                                     self.network_distance, self.processes)
             next_process = self.inout[next_process_name][0]
 
             # 다음 적치장 탐색
@@ -299,88 +383,6 @@ class Part:
 
         return next_stock
 
-    def _convert_process(self, step):
-        present_process = self.data[(step, 'process')]
-        # 1:1 대응
-        if present_process not in self.convert_to_process.keys():
-            return present_process
-
-        if present_process not in ['선행도장부', '선행의장부', '기장부', '의장1부', '의장3부', '의장2부']:
-            if present_process in ['건조1부', '건조2부', '건조3부']:
-                dock_num = self.dock
-                dock = "{0}도크".format(dock_num)
-                return dock
-            elif present_process == "Sink":
-                return "Sink"
-            else:
-                converted_process = self.convert_to_process[present_process]
-                return converted_process
-
-        # 그냥 process인 경우 + 경우의 수가 여러 개인 경우
-        else:
-            if step == 0:
-                previous_process = self.source_location
-            else:
-                previous_process = self.data[(step - 1, 'process')]
-
-            process_convert_by_dict = self.convert_to_process[present_process]
-            distance = []
-            pre_choice = process_convert_by_dict[:]
-            if previous_process is None:
-                converted_pro_process = self.convert_to_process[self.data[(step + 1, 'process')]]
-                if converted_pro_process == "Dock":
-                    converted_pro_process = '{0}도크'.format(self.dock)
-                if '판넬' in converted_pro_process:  # 판넬 물량이면
-                    previous_process = '판넬선각공장' if self.yard == 1 else "2야드 판넬공장"
-                elif self.name[6] == "H":  ## 선실 물량이면
-                    previous_process = "선실공장"
-                else:
-                    previous_process = "대조립1공장" if self.yard == 1 else "2야드 대조립공장"
-            else:
-                previous_process = self.convert_to_process[previous_process] if previous_process in self.convert_to_process.keys() else previous_process
-                if previous_process == 'Dock':
-                    previous_process =  '{0}도크'.format(self.dock)
-
-            # 1. 블록 크기로는 들어갈 수 있지만 비어있는 공장이 없는 경우와
-            # 2. 애초에 블록 크기 자체가 너무 커서 어느 공장에도 들어갈 수 없는 경우하고 나누기
-            compared_process = self.inout[previous_process][1]
-            for process in process_convert_by_dict:
-                process_temp = self.inout[process][0]
-                if (process_temp in self.network_distance.keys()) and (compared_process in self.network_distance.keys()) and \
-                        (self.network_distance[process_temp][compared_process] is not None) and \
-                        (self.network_distance[process_temp][compared_process] < 100000):
-                    temp_process = self.processes[process]
-                    if temp_process.capacity_unit == 'm2':
-                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['m2'][
-                            'preemptive'] - self.block.area
-                    elif temp_process.capacity_unit == 'EA':
-                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['EA']['preemptive'] - 1
-                    else:
-                        if_to_be_capacity = temp_process.capacity - temp_process.capacity_dict['ton'][
-                            'preemptive'] - self.block.weight
-
-                    if if_to_be_capacity > 0:
-                        distance.append(self.network_distance[process_temp][compared_process])
-                    else:
-                        pre_choice.remove(process)
-                else:
-                    pre_choice.remove(process)
-            if len(distance) > 0:
-                process_idx = distance.index(min(distance))
-                process = pre_choice[process_idx]
-            else:
-                if present_process == '선행도장부':
-                    process = 'Painting'
-                else:
-                    process = 'Shelter'
-
-            self.data[(step, 'process')] = process
-            self.processes[process].capacity_dict = record_capacity(self.processes[process].capacity_dict,
-                                                                    self.processes[process].capacity_unit,
-                                                                    self.blocks[self.name], type='preemptive',
-                                                                    inout='in')
-            return process
-
 
 class Sink:
     def __init__(self, env, processes, parts, monitor, network, stocks, inout, converting, stock_lag=2):
@@ -410,20 +412,21 @@ class Sink:
                 tp_flag = True
             used_resource = "Transporter" if tp_flag is True else None
             parent_first_process = self.parts[parent_block].data[(0, 'process')]
-            if parent_first_process in ['선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '선행도장부']:
+            if parent_first_process in ['선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '선행도장부', '도장1부',
+                                        '도장2부', '발판지원부']:
                 self.parts[parent_block].process_not_determined = True
 
             parent_start_time = self.parts[parent_block].data[(0, 'start_time')]
 
             erected_residual_time = parent_start_time - self.env.now
             if erected_residual_time >= self.stock_lag:  # Parent Block 시작까지 2일 이상 남음 --> Child는 적치장에 있다가 합침
-                standard_process = part.location if parent_first_process in ['선행의장부', '기장부', '의장1부', '의장2부', '의장3부',
-                                                                             '선행도장부'] else parent_first_process
+                standard_process = part.location if parent_first_process in ['선행의장부', '기장부', '의장1부', '의장2부', '의장3부', '선행도장부', '도장1부', '도장2부', '발판지원부'] else parent_first_process
+
                 if standard_process in self.converting.keys():
                     standard_process = self.converting[standard_process]
                 next_stock = self._find_stock(standard_process, part)  # 이 때 적치장은 현재 있는 데서 가까운 데로
 
-                self.monitor.record(self.env.now, None, None, part_id=part.name, event="Process to Stock",
+                self.monitor.record(self.env.now, None, None, part_id=part.name, event="Process to Stockyard",
                                     resource=used_resource, load=part.weight, from_process=part.location,
                                     to_process=next_stock, distance=self.network[self.inout[part.location][1]][self.inout[next_stock][0]],
                                     memo="More than {0} days left to start Parent Block".format(self.stock_lag))
@@ -456,7 +459,7 @@ class Sink:
 
         self.parts_rec += 1
         self.last_arrival = self.env.now
-        self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="completed")
+        self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Block Completed")
         print("Finished Part {0}/{1}".format(self.parts_rec, len(self.parts)))
 
     def _find_stock(self, process, part):
@@ -465,7 +468,8 @@ class Sink:
         if process == 'Dock':
             dock_num = part.dock
             process = "{0}도크".format(dock_num)
-
+        if process in ['도장1부', '도장2부']:
+            print(0)
         idx = 0
         for stock_name in stock_list:
             if part.area > self.stocks[stock_name].capacity:
@@ -595,7 +599,7 @@ class Process:
             self.event_area.append(self.parts[part.name].blocks[part.name].area)
             self.event_time.append(self.env.now)
 
-            self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Process_entered",
+            self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Process In",
                                 process_type=self.process_type, load=self.capacity_dict[self.capacity_unit]['used'],
                                 unit=self.capacity_unit)
 
@@ -697,14 +701,14 @@ class Machine:
                     ## working start
 
                     self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
-                                        event="work_start")
+                                        event="Work Start")
 
                     self.working_start = self.env.now
                     yield self.env.timeout(proc_time)
 
                     ## working finish
                     self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
-                                        event="work_finish")
+                                        event="Work Finish")
                     self.total_working_time += self.env.now - self.working_start
                     self.broken = True
                     proc_time = 0.0
@@ -761,7 +765,7 @@ class Machine:
             self.processes[self.process_name].in_process -= 1
             self.processes[self.process_name].event_block_num.append(self.processes[self.process_name].in_process)
             self.monitor.record(self.env.now, self.process_name, self.name, part_id=part.name,
-                                event="part_transferred_to_out_buffer",
+                                event="Process Out",
                                 load=its_process.capacity_dict[its_process.capacity_unit]['used'],
                                 unit=its_process.capacity_unit,
                                 process_type=self.processes[self.process_name].process_type)
@@ -800,13 +804,10 @@ class StockYard:
 
     def put(self, part, out_time):
         self.capacity_dict = record_capacity(self.capacity_dict, self.capacity_unit, part, type='used', inout='in')
-        self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Stock_in",
+        self.monitor.record(self.env.now, self.name, None, part_id=part.name, event="Stock In",
                             load=self.capacity_dict[self.capacity_unit]['used'], unit=self.capacity_unit,
                             process_type="Stock")
-        self.parts[part.name].blocks[part.name].location = self.name
         self.stock_yard.put([out_time, part])
-        # self.event_area.append(self.area_used)
-        # self.event_time.append(self.env.now)
 
 
 class Monitor:
@@ -853,9 +854,9 @@ class Monitor:
         self.to_process.append(to_process)
         self.distance.append(distance)
 
-        if event == 'created':
+        if event == 'Block Created':
             self.created += 1
-        elif event == 'completed':
+        elif event == 'Block Completed':
             self.completed += 1
 
     def record_road_used(self, from_process, to_process):
