@@ -1,8 +1,8 @@
 import simpy, time, sys
 
 from network import *
-from Sim_Kernel import *
-from Preprocessing import *
+from Sim_Kernel_TP import *
+from Preprocessing_validation import *
 from Postprocessing import *
 
 
@@ -17,22 +17,19 @@ def read_process_info(path):
         process_type = temp['type']
         if process_type not in process_info.keys():
             process_info[process_type] = {}
-        process_info[process_type][name] = {}
-        process_info[process_type][name]['capacity'] = temp['Capacity']
-        process_info[process_type][name]['unit'] = temp['unit']
-
+        process_info[process_type][name] = temp['Capacity']
         inout[name] = [temp['in'], temp['out']]
 
-    virtual_list = ['Stock', 'Shelter', 'Painting']
+    virtual_list = ['Stockyard', 'Shelter', 'Painting']
     for virtual in virtual_list:
-        if virtual == "Stock":
-            process_info['Stockyard'][virtual] = {'capacity' : float('inf'), 'unit': 'm2'}
+        if virtual == "Stockyard":
+            process_info['Stockyard'][virtual] = float('inf')
         elif virtual == 'Shelter':
-            process_info['Shelter'][virtual] = {'capacity' : float('inf'), 'unit': 'm2'}
+            process_info['Shelter'][virtual] = float('inf')
         else:
-            process_info['Painting'][virtual] = {'capacity' : float('inf'), 'unit': 'm2'}
+            process_info['Painting'][virtual] = float('inf')
 
-        inout[virtual]= [virtual, virtual]
+        inout[virtual] = [virtual, virtual]
 
     return process_info, inout
 
@@ -64,6 +61,7 @@ def read_road(path_distance, path_objectid, data_path):
 
     return network_distance
 
+
 '''
 Modeling
 * monitor -> repetitive action of every simulation => no module 
@@ -74,67 +72,66 @@ Modeling
 '''
 
 
-def modeling_parts(environment, data, process_dict, monitor_class, distance_matrix=None,
-                   stock_dict=None, inout=None, convert_dict=None, dock_dict=None, lag_time=2):
+def modeling_TP(path_tp, env):
+    tp_info = pd.read_excel(path_tp)
+    resource_tp = dict()
+    for i in range(len(tp_info)):
+        temp = tp_info.iloc[i]
+        yard = temp['운영구역'][0]
+        if yard in ["1", "2"]:
+            tp_name = temp['장비번호']
+            tp_name = tp_name if tp_name not in resource_tp.keys() else '{0}_{1}'.format(tp_name, 0)
+            capacity = temp['최대 적재가능 블록중량(톤)']
+            v_loaded = temp['만차 이동 속도(km/h)'] * 24 * 1000
+            v_unloaded = temp['공차 이동 속도(km/h)'] * 24 * 1000
+            yard = int(yard)
+            if yard not in resource_tp.keys():
+                resource_tp[yard] = dict()
+            resource_tp[yard][tp_name] = Transporter(env, capacity, tp_name, v_unloaded, v_loaded)
+
+    return resource_tp
+
+
+def modeling_process(env, process_info):
+    resource_process = dict()
+    for process_type in process_info:
+        resource_process[process_type] = dict()
+        for process in process_info[process_type]:
+            if process_type == "Stockyard":
+                resource_process[process_type][process] = Stockyard(env, process, process_info[process_type][process])
+            else:
+                resource_process[process_type][process] = Process(env, process, process_info[process_type][process],
+                                                                  process_type)
+
+    return resource_process
+
+
+def modeling_parts(environment, data, process_dict, monitor_class, distance_matrix=None, inout=None, convert_dict=None,
+                   dock_dict=None, resource_class=None, lag_time=2, block_dict=None):
     part_dict = dict()
-    blocks = {'Created Part': 0}
-    for part in data:
-        part_data = data[part]
-        temp_part = part.split("_")
+    block_dict['Created Part'] = 0
+    for part_name in data:
+        part_data = data[part_name]
+        temp_part = part_name.split("_")
         series = temp_part[0]
         if (series in dock_dict.keys()) and (dock_dict[series] in [1, 2, 3, 4, 5, 8, 9]):
             yard = 1 if dock_dict[series] in [1, 2, 3, 4, 5] else 2
-            block = Block(part, part_data['area'], part_data['size'], part_data['weight'], part_data['data'], yard,
-                          dock_dict[series], child=part_data['child_block'])
-            blocks[block.name] = block
-            part_dict[part] = Part(part, environment, part_data['data'], process_dict, monitor_class,
-                                   resource=None, network=distance_matrix, block=block, blocks=blocks,
-                                   child=part_data['child_block'], parent=part_data['parent_block'], stocks=stock_dict,
-                                   Inout=inout, convert_to_process=convert_dict, dock=dock_dict[series],
-                                   stock_lag=lag_time)
+            block = Block(part_name, part_data['area'], part_data['size'], part_data['weight'], part_data['data'],
+                          dock_dict[series], child=part_data['child_block'], parent=part_data['parent_block'])
+            block_dict[part_name] = block
+            part_dict[part_name] = Part(environment, part_name, block, part_data['data'], block_dict, part_dict,
+                                        process_dict, convert_dict, inout, distance_matrix, dock_dict[series],
+                                        part_data['size'], part_data['area'], monitor_class, resource_class,
+                                        child=part_data['child_block'], parent=part_data['parent_block'],
+                                        stock_lag=lag_time)
 
     return part_dict
-
-
-def modeling_processes(process_dict, stock_dict, process_info, environment, parts, monitor_class, machine_num,
-                       convert_process, network, inout, lag_time):
-    # 1. Stockyard
-    stockyard_info = process_info['Stockyard']
-    for stock in stockyard_info.keys():
-        stock_dict[stock] = StockYard(environment, stock, parts, monitor_class,
-                                      capacity=stockyard_info[stock]['capacity'], unit=stockyard_info[stock]['unit'])
-    # 2. Shelter
-    shelter_info = process_info['Shelter']
-    for shelter in shelter_info.keys():
-        process_dict[shelter] = Process(environment, shelter, machine_num, process_dict, parts, monitor,
-                                        capacity=shelter_info[shelter]['capacity'],
-                                        convert_dict=convert_process, unit=shelter_info[shelter]['unit'],
-                                        process_type="Shelter")
-
-    # 3. Painting
-    painting_info = process_info['Painting']
-    for painting in painting_info.keys():
-        process_dict[painting] = Process(environment, painting, machine_num, process_dict, parts, monitor,
-                                        capacity=painting_info[painting]['capacity'],
-                                        convert_dict=convert_process, unit=painting_info[painting]['unit'],
-                                        process_type="Painting")
-
-    # 4. Factory
-    factory_info = process_info['Factory']
-    for factory in factory_info.keys():
-        process_dict[factory] = Process(environment, factory, machine_num, process_dict, parts, monitor,
-                                        capacity=factory_info[factory]['capacity'],
-                                        convert_dict=convert_process, unit=factory_info[factory]['unit'],
-                                        process_type="Factory")
-    process_dict['Sink'] = Sink(environment, process_dict, parts, monitor_class, network, stock_dict, inout,
-                                convert_process, lag_time)
-    return process_dict, stock_dict
 
 
 if __name__ == "__main__":
     start = time.time()
     # 1. read input data
-    with open('./HiTest/input_data.json', 'r') as f:
+    with open('./Transporter/input_data.json', 'r') as f:
         input_data = json.load(f)
 
     process_info, inout = read_process_info(input_data['path_process_info'])
@@ -156,30 +153,29 @@ if __name__ == "__main__":
             sim_data = json.load(f)
         print("Finish data loading at {0} seconds".format(round(time.time() - start, 2)), flush=True)
 
-    initial_date = sim_data['simulation_initial_date']
+    initial_date = sim_data['initial_date']
     block_data = sim_data['block_info']
     print("Total Blocks = {0}".format(len(block_data)), flush=True)
     network_distance = read_road(input_data['path_distance'], input_data['path_road'], input_data['default_input'])
 
     # define simulation environment
     env = simpy.Environment()
+    block_dict = dict()
 
     # Modeling
-    stock_yard = dict()
-    processes = dict()
-
     # 1. Monitor
     monitor = Monitor(input_data['default_result'], input_data['project_name'], pd.to_datetime(initial_date))
 
-    # 2. Block
-    parts = modeling_parts(env, block_data, processes, monitor, distance_matrix=network_distance,
-                           stock_dict=stock_yard, inout=inout, convert_dict=converting, dock_dict=dock,
-                           lag_time=input_data['parameter_stock_lag_time'])
+    # 2. Resource
+    tp_dict = modeling_TP(input_data['path_transporter'], env)
+    process_dict = modeling_process(env, process_info)
+    process_dict['Sink'] = Sink(env, monitor, len(block_data))
+    resource = Resource(env, tp_dict, process_dict, network_distance, inout, block_dict, converting, monitor)
 
-    # 3. Process and StockYard
-    processes, stock_yard = modeling_processes(processes, stock_yard, process_info, env, parts, monitor,
-                                               input_data['machine_num'], converting, network_distance, inout,
-                                               lag_time=input_data['parameter_stock_lag_time'])
+    # 3. Block
+    parts = modeling_parts(env, block_data, process_dict, monitor, distance_matrix=network_distance,
+                           inout=inout, convert_dict=converting, dock_dict=dock, resource_class=resource,
+                           lag_time=input_data['parameter_stock_lag_time'], block_dict=block_dict)
 
     start_sim = time.time()
     env.run()
@@ -192,7 +188,7 @@ if __name__ == "__main__":
     print("number of completed = ", monitor.completed, flush=True)
 
     output_path = dict()
-    output_path['input_path'] = './HiTest/input_data.json'
+    output_path['input_path'] = './Transporter/input_data.json'
     output_path['event_tracer'] = path_event_tracer
     output_path['inout'] = inout
     output_path['path_preprocess'] = input_data['path_preprocess'] if input_data['use_prior_process'] else data_preprocess_path

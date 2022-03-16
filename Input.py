@@ -2,16 +2,17 @@ import json, os
 
 ''' User can write down the setting '''
 
-PROJECT = "New_Version"
+PROJECT = "Transporter"
 
 
-START = '2017-01-01'
-FINISH = '2022-12-21'
+START = '2019-01-01'
+FINISH = '2020-06-30'
 
 
 # indicator
 ## 기간이 같거나, TP, Converting, Factory_info 파일만 바꾼 경우 -> True
-USE_PRIOR_PREPROCESS = False
+USE_PRIOR_PREPROCESS = True
+
 ''' if the use_prior_input is False '''
 # user puts the input file name down
 # 1. If 'do_proproc' is True
@@ -21,7 +22,7 @@ if not, fill the number what you want to simulate for in the list
 '''
 
 # If reuse the prior file on preprocess --> 전처리 안 할 때는 굳이 안 건드려도 됨
-PATH_PRIOR_PROCESS = "Layout_data_20191211_20201118.json"
+PATH_PRIOR_PROCESS = "Layout_data_20190101_20200630.json"
 
 # If you want to run the Preprocess.py
 PATH_ACTIVITY = "Layout_Activity.xlsx"
