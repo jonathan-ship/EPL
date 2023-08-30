@@ -251,6 +251,8 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
         # recording block information into 'block_info' dictionary
         block_list_for_source = copy.deepcopy(block_list)
         for block_code in block_list:
+            if block_code == "A0054_T15P0":
+                print(0)
             block_data = block_group.get_group(block_code)
             block_dock = dock_mapping[str(series)] if str(series) in dock_mapping.keys() else None
             if block_dock in [1, 2, 3, 4, 5, 8, 9]:
@@ -302,7 +304,7 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                                 if previous_dict['시작일'] > save_finish:
                                     start_date = previous_dict['시작일']
                                 else:
-                                    start_date = finish_date + 1
+                                    start_date = finish_date
                                     record(previous_dict, "변경(액티비티 일부 겹침)", "before", initial_date)
 
                                 if previous_dict['종료일'] >= start_date:
@@ -339,7 +341,7 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
                                 if previous_dict['시작일'] > save_finish:
                                     start_date = previous_dict['시작일']
                                 else:
-                                    start_date = finish_date + 1
+                                    start_date = finish_date
                                     record(previous_dict, "변경(액티비티 일부 겹침)", "before", initial_date)
 
                                 process_data[4 * idx] = float(start_date)
@@ -421,7 +423,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
 
 
     data_validation_before, data_validation_after = save_dataframe()
-    data_validation_after.to_excel("Validation_after.xlsx")
-    data_validation_before.to_excel("Validation_before.xlsx")
+    data_validation_after.to_excel(input_data['default_input'] + "Validation_after.xlsx")
+    data_validation_before.to_excel(input_data['default_input'] + "Validation_before.xlsx")
     return path
-
