@@ -215,8 +215,6 @@ class Management:
                             resource=selected_tp.name)
 
     def convert_process(self, block, step):
-        if block.name == "A0054_T15P0":
-            print(0)
         present_dep = block.schedule[step].process
 
         if present_dep != 'Sink':
@@ -364,8 +362,7 @@ class Management:
             # 거리 순으로 정렬 후, 가장 가까운 적치장으로 배정
             distance = sorted(distance, key=lambda x: x[1])
             next_stockyard = distance[0][0]
-            if next_stockyard is None:
-                print(0)
+
             # 면적 선점
             self.monitor.record(self.env.now, None, part_id=block.name, event="Area Requested",
                                 resource=next_stockyard, process_type="Stockyard",
@@ -569,8 +566,7 @@ class Factory:
                         yield self.env.timeout(next_start_time - self.env.now)
                     next_destination = self.resource_management.convert_process(self.block_dict[block.parent], 0)
                     next_process_type = self.resource_management.get_process_type(next_destination)
-                    if next_destination is None or next_process_type is None:
-                        print(0)
+
                     if not self.block_dict[block.parent].schedule[0].area_requested and not self.block_dict[block.parent].schedule[0].area_preempted:
                         self.monitor.record(self.env.now, None, part_id=block.parent, resource=next_destination,
                                             event="Area Requested",
