@@ -442,7 +442,6 @@ class Source:
                             unit='m2')
 
 
-
     def erect(self, child_block):
         self.block.finished_child += 1
         self.monitor.record(self.env.now, None, part_id=self.block.name, event="Child Block Arrived",
@@ -513,6 +512,7 @@ class Factory:
 
     def to_next_process(self, block):
         idx = None
+
         if block.schedule[block.step + 1].process != "Sink":  # 다음 opearation이 남아있는 경우
             next_schedule = block.schedule[block.step + 1]
             idx = "Process to Process"
