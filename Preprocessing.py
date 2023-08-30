@@ -251,8 +251,6 @@ def processing_with_activity_N_bom(input_data, dock, converting) -> object:
         # recording block information into 'block_info' dictionary
         block_list_for_source = copy.deepcopy(block_list)
         for block_code in block_list:
-            if block_code == "A0054_T15P0":
-                print(0)
             block_data = block_group.get_group(block_code)
             block_dock = dock_mapping[str(series)] if str(series) in dock_mapping.keys() else None
             if block_dock in [1, 2, 3, 4, 5, 8, 9]:
