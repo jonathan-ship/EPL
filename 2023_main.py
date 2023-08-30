@@ -101,14 +101,18 @@ def modeling_blocks(environment, data, process_dict, block_dict, monitor_class, 
         part_data = data[part_name]
         temp_part = part_name.split("_")
         series = temp_part[0]
+
         if (series in dock_dict.keys()) and (dock_dict[series] in [1, 2, 3, 4, 5, 8, 9]):
             yard = 1 if dock_dict[series] in [1, 2, 3, 4, 5] else 2
             operation_list = list()
             idx = 0
-            while 4 * idx < len(part_data['data']) and part_data['data'][idx + 2] != "Sink":
+            while True:
                 operation_list.append(Operation(part_data['data'][idx], part_data['data'][idx + 1], part_data['data'][idx + 2], part_data['data'][idx + 3]))
-                idx += 4
-            operation_list.append(Operation(None, None, "Sink", None))
+                if part_data['data'][idx + 2] != "Sink":
+                    idx += 4
+                else:
+                    break
+
             block_name = "{0}_{1}".format(temp_part[0], temp_part[1])
             block_dict[block_name] = Block(env, block_name, part_data['area'], part_data['weight'], operation_list,
                                            dock_dict[series], child=part_data['child_block'],
