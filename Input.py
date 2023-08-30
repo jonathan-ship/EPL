@@ -1,17 +1,17 @@
-import json, os
+import json, os, shutil
 
 ''' User can write down the setting '''
 
-PROJECT = "Transporter"
+PROJECT = "Project name"
 
 
-START = '2019-01-01'
-FINISH = '2020-06-30'
+START = '2018-01-01'
+FINISH = '2023-06-30'
 
 
 # indicator
 ## 기간이 같거나, TP, Converting, Factory_info 파일만 바꾼 경우 -> True
-USE_PRIOR_PREPROCESS = True
+USE_PRIOR_PREPROCESS = False
 
 ''' if the use_prior_input is False '''
 # user puts the input file name down
@@ -22,7 +22,7 @@ if not, fill the number what you want to simulate for in the list
 '''
 
 # If reuse the prior file on preprocess --> 전처리 안 할 때는 굳이 안 건드려도 됨
-PATH_PRIOR_PROCESS = "Layout_data_20190101_20200630.json"
+PATH_PRIOR_PROCESS = "Layout_data_20180101_20230630.json"
 
 # If you want to run the Preprocess.py
 PATH_ACTIVITY = "Layout_Activity.xlsx"
@@ -38,6 +38,7 @@ PATH_PROCESS_INFO = "Factory_info.xlsx"  # Capacity and in&out point
 # information for resource : Transporter
 PATH_TP = 'transporter.xlsx'
 
+
 def create_path(input_path, output_path, project_name):
     # Create Project Path
     if not os.path.exists("./{0}".format(project_name)):
@@ -48,6 +49,17 @@ def create_path(input_path, output_path, project_name):
         os.makedirs(output_path)
 
 
+def copy_file(input_path):
+    file_path = "./As-Is/Input/"
+    shutil.copyfile(file_path + PATH_ACTIVITY, input_path + PATH_ACTIVITY)
+    shutil.copyfile(file_path + PATH_BOM, input_path + PATH_BOM)
+    shutil.copyfile(file_path + PATH_CONVERTING, input_path + PATH_CONVERTING)
+    shutil.copyfile(file_path + PATH_DOCK_AND_SERIES, input_path + PATH_DOCK_AND_SERIES)
+    shutil.copyfile(file_path + PATH_DISTANCE, input_path + PATH_DISTANCE)
+    shutil.copyfile(file_path + PATH_ROAD, input_path + PATH_ROAD)
+    shutil.copyfile(file_path + PATH_PROCESS_INFO, input_path + PATH_PROCESS_INFO)
+    shutil.copyfile(file_path + PATH_TP, input_path + PATH_TP)
+
 if __name__ == "__main__":
     input_data = dict()
     INPUT_PATH = "./{0}/Input/".format(PROJECT)
@@ -57,7 +69,6 @@ if __name__ == "__main__":
     input_data['default_input'] = INPUT_PATH
     input_data['default_result'] = OUTPUT_PATH
     input_data['project_name'] = PROJECT
-
 
     # create folder with input, output path when the folder is not in the path
     create_path(INPUT_PATH, OUTPUT_PATH, PROJECT)
@@ -70,7 +81,7 @@ if __name__ == "__main__":
 
     else:  # 새로 전처리 하는 경우
         input_data['path_activity_data'] = INPUT_PATH + PATH_ACTIVITY
-        input_data['path_bom_data'] = INPUT_PATH+ PATH_BOM
+        input_data['path_bom_data'] = INPUT_PATH + PATH_BOM
 
         input_data['start_date'] = START
         input_data['finish_date'] = FINISH
@@ -87,7 +98,6 @@ if __name__ == "__main__":
     input_data['path_process_info'] = INPUT_PATH + PATH_PROCESS_INFO
     input_data['path_transporter'] = INPUT_PATH + PATH_TP
 
-
     input_data['parameter_stock_lag_time'] = 5
     input_data['parameter_road_warning'] = 1
 
@@ -95,8 +105,8 @@ if __name__ == "__main__":
     input_data['process_area'] = float("inf")
     input_data['machine_num'] = 10000
 
+    copy_file(INPUT_PATH)
+
     # Save data
     with open('./{0}/input_data.json'.format(PROJECT), 'w') as f:
         json.dump(input_data, f)
-
-
