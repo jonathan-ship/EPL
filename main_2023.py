@@ -1,7 +1,7 @@
 import simpy, time, sys
 
 from network import *
-from 2023_simulation import *
+from simulation_2023 import *
 from Preprocessing import *
 from Postprocessing import *
 
@@ -132,7 +132,7 @@ def modeling_blocks(environment, data, process_dict, block_dict, monitor_class, 
 if __name__ == "__main__":
     start = time.time()
     # 1. read input data
-    with open('./Entire/input_data.json', 'r') as f:
+    with open('./Test/input_data.json', 'r') as f:
         input_data = json.load(f)
 
     process_info, inout = read_process_info(input_data['path_process_info'])
