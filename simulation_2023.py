@@ -176,7 +176,7 @@ class Management:
             # 다음 위치로 이동
             yield self.env.timeout(transporting_time)
             self.monitor.record(self.env.now, "Management", part_id=block.name,
-                                event="Transporter Loading Completed",
+                                event="Transporter Loading Complete",
                                 resource=selected_tp.name, load=block.weight, unit="ton",
                                 from_process=block.location, to_process=next_process,
                                 distance=transporting_distance, work=block.schedule[block.step].work)
