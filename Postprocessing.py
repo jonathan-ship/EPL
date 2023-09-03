@@ -61,7 +61,7 @@ def road_usage(event_tracer, network_road, inout, result_path, tp_info):
         event_tracer_road = event_tracer[(event_tracer["Resource"] == tp_name) & (event_tracer["Distance"] > 0)]
         event_tracer_road = event_tracer_road[
             (event_tracer_road["Event"] == "Transporter Loading Start") | (
-                        event_tracer_road["Event"] == "Transporter Load Completed")]
+                        event_tracer_road["Event"] == "Transporter Load Complete")]
         event_tracer_road = event_tracer_road[event_tracer_road["Distance"] > 0]
         event_tracer_road = event_tracer_road.reset_index(drop=True)
         for i in range(len(event_tracer_road)):
